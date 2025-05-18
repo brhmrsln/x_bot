@@ -1,0 +1,23 @@
+cd ~/x_bot
+
+cat > .gitignore <<'EOF'
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Virtual-env ---
+venv/
+.env/
+
+# --- Secrets / keys ---
+keys.json
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+
+# --- Logs ---
+*.log
+EOF
+
