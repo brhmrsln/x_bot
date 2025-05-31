@@ -11,8 +11,7 @@ venv/
 .env/
 
 # --- Secrets / keys ---
-keys_live.json
-keys_test.json
+.env
 
 # --- IDE / editor ---
 .vscode/

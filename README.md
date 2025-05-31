@@ -1,6 +1,6 @@
 # x_bot – Binance Futures
 
-## Kurulum
+## Setup
 
 ```bash
 git clone https://github.com/kullanici/x_bot.git
