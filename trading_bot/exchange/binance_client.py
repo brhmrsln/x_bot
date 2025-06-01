@@ -576,6 +576,88 @@ class BinanceFuturesClient:
         except Exception as e:
             logger.error(f"Error querying order for {symbol.upper()} (ID: {order_id or orig_client_order_id}): {e}", exc_info=True)
             return None
+        
+    def get_historical_klines(self, symbol, interval, limit=100, start_time=None, end_time=None):
+        """
+        Fetches historical klines (candlestick data) for a symbol.
+
+        :param symbol: Trading symbol (e.g., "BTCUSDT")
+        :param interval: Kline interval (e.g., "1m", "5m", "15m", "1h", "4h", "1d")
+        :param limit: Number of klines to retrieve (default 100, max usually 1000 or 1500 by Binance).
+        :param start_time: Optional. Timestamp in ms to get klines from (inclusive).
+        :param end_time: Optional. Timestamp in ms to get klines until (inclusive).
+        :return: List of kline data, or None if an error occurs.
+                 Each kline is a list: [
+                     open_time, open_price, high_price, low_price, close_price,
+                     volume, close_time, quote_asset_volume, number_of_trades,
+                     taker_buy_base_asset_volume, taker_buy_quote_asset_volume, ignore
+                 ]
+                 All price/volume related fields are strings.
+        """
+        logger.debug(f"Fetching historical klines for {symbol.upper()} with interval {interval}, limit {limit}...")
+        params = {
+            'symbol': symbol.upper(),
+            'interval': interval,
+            'limit': limit
+        }
+        if start_time is not None: # Ensure None is not passed if not provided
+            params['startTime'] = start_time
+        if end_time is not None: # Ensure None is not passed if not provided
+            params['endTime'] = end_time
+        
+        # Log parameters without None values for clarity if they were not provided
+        active_params_log = {k: v for k, v in params.items() if v is not None}
+        logger.debug(f"Parameters for klines API: {active_params_log}")
+        
+        try:
+            # The UMFutures klines method directly returns the list of klines
+            klines_data = self.client.klines(**params)
+            if klines_data:
+                logger.info(f"Successfully fetched {len(klines_data)} klines for {symbol.upper()} (interval: {interval}, limit: {limit}).")
+                # logger.debug(f"Sample kline data (first kline): {klines_data[0]}")
+            else:
+                logger.info(f"No kline data returned for {symbol.upper()} (interval: {interval}, limit: {limit}) with params: {active_params_log}.")
+            return klines_data
+        except Exception as e:
+            logger.error(f"Error fetching klines for {symbol.upper()} interval {interval}: {e}", exc_info=True)
+            return None
+        
+    def get_all_tickers_24hr(self):
+        """
+        Fetches 24-hour price change statistics for all available symbols
+        using the ticker_24hr_price_change method.
+
+        :return: List of ticker data dictionaries, or None if an error occurs.
+        """
+        method_name_to_use = "ticker_24hr_price_change"
+        logger.debug(f"Fetching 24hr ticker statistics for ALL symbols using client.{method_name_to_use}(symbol=None)...")
+        
+        try:
+            # Doğrudan ticker_24hr_price_change metodunu çağırıyoruz.
+            # symbol=None argümanı, kütüphanenin tüm semboller için veri getirmesini sağlamalıdır.
+            tickers_data = self.client.ticker_24hr_price_change(symbol=None) 
+            
+            if tickers_data:
+                # API bazen boş liste yerine None döndürebilir veya tam tersi, bu yüzden her iki durumu da kontrol etmek iyidir.
+                if isinstance(tickers_data, list):
+                    logger.info(f"Successfully fetched 24hr ticker data for {len(tickers_data)} symbols using {method_name_to_use}.")
+                    # logger.debug(f"Sample ticker data (first symbol): {tickers_data[0] if tickers_data else 'No data'}")
+                else:
+                    # Bu durum, API'nin beklenmedik bir formatta yanıt verdiğini gösterebilir.
+                    logger.warning(f"Data received from {method_name_to_use} is not a list (type: {type(tickers_data)}). Data: {tickers_data}")
+                    # Beklenmedik bir yanıt türü ise None döndürmek daha güvenli olabilir.
+                    # Ancak kütüphane genellikle ya liste ya da hata döndürür. Şimdilik bu log yeterli.
+            else:
+                # None veya boş liste durumu
+                logger.warning(f"No 24hr ticker data returned by {method_name_to_use} (received {type(tickers_data)}).")
+            return tickers_data
+        except AttributeError: # Eğer metot hala bulunamazsa bu hata yakalanır
+            logger.error(f"AttributeError: Method '{method_name_to_use}' not found on client object (type: {type(self.client)}). "
+                         "Please verify the method name in your installed library version.", exc_info=True)
+            return None
+        except Exception as e: # Diğer olası API veya ağ hataları için
+            logger.error(f"Error fetching 24hr ticker data using {method_name_to_use}: {e}", exc_info=True)
+            return None
             
 if __name__ == '__main__':
     standalone_logger = setup_logger(name="trading_bot") 
@@ -658,6 +740,20 @@ if __name__ == '__main__':
         except Exception as e_all_orders:
             standalone_logger.error(f"Error explicitly caught during get_all_orders_for_symbol call in __main__: {type(e_all_orders).__name__} - {e_all_orders}")
 
+
+        standalone_logger.info(f"--- Step 6: Fetching Historical Klines for {test_symbol} ---")
+        klines = client.get_historical_klines(symbol=test_symbol, interval="5m", limit=5)
+        if klines:
+            standalone_logger.info(f"Fetched last {len(klines)} klines (5m interval):")
+            for kline in klines:
+                # Kline format: [open_time, open, high, low, close, volume, close_time, ...]
+                # Convert open_time to readable format (timestamp is in ms)
+                import datetime
+                open_time_readable = datetime.datetime.fromtimestamp(kline[0]/1000).strftime('%Y-%m-%d %H:%M:%S')
+                standalone_logger.info(f"  Time: {open_time_readable}, Open: {kline[1]}, High: {kline[2]}, Low: {kline[3]}, Close: {kline[4]}, Volume: {kline[5]}")
+        else:
+            standalone_logger.warning(f"Could not fetch klines for {test_symbol}.")
+            
     except ValueError as ve: # For config errors or formatting issues
         standalone_logger.critical(f"CONFIGURATION or VALUE ERROR: {ve}", exc_info=True) # Show traceback for ValueErrors too
     except Exception as e:
