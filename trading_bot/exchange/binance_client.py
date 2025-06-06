@@ -659,6 +659,59 @@ class BinanceFuturesClient:
             logger.error(f"Error fetching 24hr ticker data using {method_name_to_use}: {e}", exc_info=True)
             return None
             
+
+    def query_order(self, symbol, order_id):
+        """
+        Queries the status of a specific order by its ID, regardless of its status.
+        This method directly implements the call to GET /fapi/v1/order endpoint.
+        This is a robust replacement for a potentially missing get_order() method.
+
+        :param symbol: The trading symbol, e.g., "BTCUSDT".
+        :param order_id: The unique order ID to query.
+        :return: A dictionary with the order's data, or None if an error occurs.
+        """
+        url_path = "/fapi/v1/order" # The specific endpoint for querying a single order
+        params = {
+            'symbol': symbol.upper(),
+            'orderId': order_id,
+            'recvWindow': 5000
+        }
+        logger.debug(f"Querying specific order with params: {params}")
+        try:
+            # self.sign_request is the core authenticated request method in the library
+            order_data = self.client.sign_request("GET", url_path, params)
+            logger.info(f"Successfully queried order {order_id} for {symbol.upper()}. Status: {order_data.get('status')}")
+            return order_data
+        except Exception as e:
+            logger.error(f"Error querying order {order_id} for {symbol.upper()}: {e}", exc_info=True)
+            # Handle "Order does not exist" error specifically
+            if hasattr(e, 'error_code') and e.error_code == -2013: 
+                logger.warning(f"Order {order_id} does not exist (error -2013). It might have been cancelled and purged.")
+                return {"status": "NOT_FOUND"} # Return a custom dictionary to signal this state
+            return None
+
+    def cancel_order(self, symbol, order_id):
+        """
+        Cancels an open order by its ID. Necessary to cancel the remaining SL or TP order
+        once one of them is filled.
+
+        :param symbol: The trading symbol, e.g., "BTCUSDT".
+        :param order_id: The unique order ID to cancel.
+        :return: A dictionary with the cancellation response, or None on error.
+        """
+        logger.info(f"Attempting to cancel order {order_id} for {symbol.upper()}...")
+        try:
+            response = self.client.cancel_order(symbol=symbol.upper(), orderId=order_id, recvWindow=5000)
+            logger.info(f"Cancel order request for {order_id} sent. Response: {response}")
+            return response
+        except Exception as e:
+            logger.error(f"Error cancelling order {order_id} for {symbol.upper()}: {e}", exc_info=True)
+            # -2011 "Unknown order sent" can mean it was already filled or cancelled.
+            if hasattr(e, 'error_code') and e.error_code == -2011:
+                logger.warning(f"Order {order_id} likely already filled or cancelled (error -2011).")
+                return {"status": "ALREADY_CLOSED_OR_CANCELLED"}
+            return None
+        
 if __name__ == '__main__':
     standalone_logger = setup_logger(name="trading_bot") 
     standalone_logger.info("--- Testing BinanceFuturesClient Standalone with Order Placement (SL & TP) ---")
