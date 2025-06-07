@@ -4,65 +4,74 @@ import logging
 
 logger = logging.getLogger("trading_bot")
 
-def get_top_volume_usdt_futures_symbols(client, count=20, min_quote_volume=50000000): # Example: 50M USDT min volume
+def get_top_volume_usdt_futures_symbols(client, count=20, min_quote_volume=50000000):
     """
-    Fetches all USDT-margined futures symbols, filters them by a minimum 24h quote volume,
-    and returns the top 'count' symbols ranked by their 24h quote volume.
+    Fetches USDT-margined PERPETUAL futures symbols, filters them by trading status
+    and minimum 24h quote volume, and returns the top 'count' symbols ranked by volume.
 
     :param client: Instance of BinanceFuturesClient.
     :param count: Number of top symbols to return.
     :param min_quote_volume: Minimum 24h quote volume in USDT to consider a symbol.
-    :return: List of symbol strings (e.g., ["BTCUSDT", "ETHUSDT"]), 
-             or an empty list if an error occurs or no symbols meet criteria.
+    :return: List of symbol strings (e.g., ["BTCUSDT", "ETHUSDT"]), or an empty list.
     """
-    logger.info(f"Attempting to fetch top {count} USDT futures symbols by volume "
+    logger.info(f"Attempting to fetch top {count} USDT-M PERPETUAL symbols by volume "
                 f"(min 24h quote_volume: {min_quote_volume} USDT)...")
     
-    all_tickers_data = client.get_all_tickers_24hr() # This uses the new method in BinanceFuturesClient
-    
+    # 1. Get a set of symbols that are USDT-M Perpetual and currently trading.
+    # This is a much more robust filter than just checking if symbol.endswith("USDT").
+    try:
+        exchange_info = client._get_exchange_info()
+        if not exchange_info:
+            logger.error("Could not get exchange info to filter symbols.")
+            return []
+        
+        # Create a set of eligible symbols for fast lookups later.
+        eligible_symbols_set = {
+            s['symbol'] for s in exchange_info['symbols'] 
+            if s.get('status') == 'TRADING' 
+            and s.get('contractType') == 'PERPETUAL'
+            and s.get('quoteAsset') == 'USDT'
+        }
+        logger.debug(f"Found {len(eligible_symbols_set)} active, USDT-margined, perpetual symbols.")
+
+    except Exception as e:
+        logger.error(f"Error while getting/processing exchange_info for symbol filtering: {e}", exc_info=True)
+        return []
+
+    # 2. Get 24hr ticker data for all symbols
+    all_tickers_data = client.get_all_tickers_24hr()
     if not all_tickers_data:
         logger.warning("Could not retrieve 24hr ticker data from client to rank symbols.")
         return []
 
-    eligible_symbols = []
+    # 3. Filter tickers by our eligible set and by volume
+    volume_filtered_symbols = []
     for ticker in all_tickers_data:
         symbol = ticker.get('symbol')
         
-        # Ensure it's a USDT margined pair. UMFutures client primarily deals with these,
-        # but an explicit check for "USDT" at the end is a good safeguard.
-        if not symbol or not symbol.endswith("USDT"):
-            # logger.debug(f"Skipping non-USDT or invalid symbol: {symbol}")
+        # --- NEW, MORE ROBUST FILTER ---
+        # Check if the symbol from the ticker data is in our set of eligible symbols.
+        if symbol not in eligible_symbols_set:
             continue
-        
+        # -------------------------------
+
         try:
-            # 'quoteVolume' is the 24h volume in the quote asset (USDT for USDT-M futures)
             quote_volume = float(ticker.get('quoteVolume', 0))
-            
             if quote_volume >= min_quote_volume:
-                eligible_symbols.append({'symbol': symbol, 'quoteVolume': quote_volume})
-            # else:
-            #     logger.debug(f"Symbol {symbol} filtered out due to low quote volume: {quote_volume} < {min_quote_volume}")
-        except ValueError:
+                volume_filtered_symbols.append({'symbol': symbol, 'quoteVolume': quote_volume})
+        except (ValueError, TypeError):
             logger.warning(f"Could not parse quoteVolume for symbol {symbol}. Ticker data: {ticker}")
             continue
-        except Exception as e: # Catch any other unexpected error for a specific ticker
-            logger.error(f"Unexpected error processing ticker {ticker.get('symbol', 'N/A')}: {e}", exc_info=False) # exc_info=False to keep log cleaner
-            continue
             
-    if not eligible_symbols:
-        logger.warning(f"No symbols met the minimum quote volume criteria of {min_quote_volume} USDT.")
+    if not volume_filtered_symbols:
+        logger.warning(f"No symbols met the minimum quote volume criteria of {min_quote_volume} USDT after all filters.")
         return []
 
-    # Sort symbols by quoteVolume in descending order
-    ranked_symbols_with_volume = sorted(eligible_symbols, key=lambda x: x['quoteVolume'], reverse=True)
+    # 4. Sort and return the top symbols
+    ranked_symbols = sorted(volume_filtered_symbols, key=lambda x: x['quoteVolume'], reverse=True)
+    top_symbols_list = [item['symbol'] for item in ranked_symbols[:count]]
     
-    # Extract just the symbol strings for the top 'count'
-    top_symbols_list = [item['symbol'] for item in ranked_symbols_with_volume[:count]]
-    
-    logger.info(f"Top {len(top_symbols_list)} symbols by volume (met criteria): {top_symbols_list}")
-    if len(top_symbols_list) < count and len(eligible_symbols) < count :
-        logger.info(f"  (Note: Found only {len(eligible_symbols)} eligible symbols meeting all criteria, "
-                    f"which is less than the requested count of {count})")
+    logger.info(f"Top {len(top_symbols_list)} symbols by volume (after all filters): {top_symbols_list}")
 
     return top_symbols_list
 

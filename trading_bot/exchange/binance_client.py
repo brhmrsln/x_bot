@@ -233,53 +233,50 @@ class BinanceFuturesClient:
             logger.error(f"Failed to place MARKET order (using calculated quantity) for {symbol.upper()}: {e}", exc_info=True)
             raise
     
-    def place_take_profit_market_order(self, symbol, side, quantity, stop_price, reduce_only=True):
+    def place_take_profit_market_order(self, symbol, side, quantity, stop_price, reduce_only=True, trigger_on_mark_price=True):
         """
         Places a TAKE_PROFIT_MARKET order.
-        Typically used for taking profit on an existing position.
-        :param side: "BUY" (for take-profit on short) or "SELL" (for take-profit on long)
-        :param stop_price: The price at which the market order (to take profit) will be triggered.
-        :param reduce_only: If True, this order will only reduce an existing position.
+        :param trigger_on_mark_price: If True, uses 'MARK_PRICE'. If False, uses 'CONTRACT_PRICE' (Last Price).
         """
         formatted_quantity = self._format_quantity(symbol, quantity)
-        if formatted_quantity <= 0:
-            msg = f"Formatted quantity {formatted_quantity} for take-profit order is zero or less. Cannot place order."
-            logger.error(msg)
-            raise ValueError(msg)
-            
-        # stop_price for TAKE_PROFIT_MARKET is the trigger price for profit taking
         formatted_trigger_price = self._format_price(symbol, stop_price) 
         
-        logger.info(f"Attempting to place TAKE_PROFIT_MARKET order: {side} {formatted_quantity} {symbol.upper()} at triggerPrice {formatted_trigger_price}, reduceOnly={reduce_only}...")
+        working_type = 'MARK_PRICE' if trigger_on_mark_price else 'CONTRACT_PRICE'
+
+        logger.info(f"Attempting to place TAKE_PROFIT_MARKET order: {side} {formatted_quantity} {symbol.upper()} at triggerPrice {formatted_trigger_price}, "
+                    f"reduceOnly={reduce_only}, workingType={working_type}...")
         params = {
             'symbol': symbol.upper(),
             'side': side.upper(),
             'type': 'TAKE_PROFIT_MARKET',
             'quantity': formatted_quantity,
-            'stopPrice': formatted_trigger_price, # For TAKE_PROFIT_MARKET, stopPrice acts as the trigger price
+            'stopPrice': formatted_trigger_price,
             'reduceOnly': str(reduce_only).lower(),
+            'workingType': working_type, # workingType parametresini ekliyoruz
             'newOrderRespType': 'RESULT'
         }
         logger.debug(f"Parameters for TAKE_PROFIT_MARKET order: {params}")
         try:
             order = self.client.new_order(**params)
-            logger.info(f"TAKE_PROFIT_MARKET order placed successfully for {symbol.upper()}. Response: {order}")
+            logger.info(f"TAKE_PROFIT_MARKET order placed successfully. Response: {order}")
             return order
         except Exception as e:
-            logger.error(f"Failed to place TAKE_PROFIT_MARKET order for {symbol.upper()} at triggerPrice {formatted_trigger_price}: {e}", exc_info=True)
+            logger.error(f"Failed to place TAKE_PROFIT_MARKET order: {e}", exc_info=True)
             raise 
 
 
-    def place_stop_market_order(self, symbol, side, quantity, stop_price, reduce_only=True):
+    def place_stop_market_order(self, symbol, side, quantity, stop_price, reduce_only=True, trigger_on_mark_price=True):
+        """
+        Places a STOP_MARKET order.
+        :param trigger_on_mark_price: If True, uses 'MARK_PRICE'. If False, uses 'CONTRACT_PRICE' (Last Price).
+        """
         formatted_quantity = self._format_quantity(symbol, quantity)
-        if formatted_quantity <= 0:
-            msg = f"Formatted quantity {formatted_quantity} for stop order is zero or less. Cannot place stop order."
-            logger.error(msg)
-            raise ValueError(msg)
-            
         formatted_stop_price = self._format_price(symbol, stop_price)
         
-        logger.info(f"Attempting to place STOP_MARKET order: {side} {formatted_quantity} {symbol.upper()} at stopPrice {formatted_stop_price}, reduceOnly={reduce_only}...")
+        working_type = 'MARK_PRICE' if trigger_on_mark_price else 'CONTRACT_PRICE'
+        
+        logger.info(f"Attempting to place STOP_MARKET order: {side} {formatted_quantity} {symbol.upper()} at stopPrice {formatted_stop_price}, "
+                    f"reduceOnly={reduce_only}, workingType={working_type}...")
         params = {
             'symbol': symbol.upper(),
             'side': side.upper(),
@@ -287,30 +284,34 @@ class BinanceFuturesClient:
             'quantity': formatted_quantity,
             'stopPrice': formatted_stop_price,
             'reduceOnly': str(reduce_only).lower(),
+            'workingType': working_type, # workingType parametresini ekliyoruz
             'newOrderRespType': 'RESULT'
         }
         logger.debug(f"Parameters for STOP_MARKET order: {params}")
         try:
             order = self.client.new_order(**params)
-            logger.info(f"STOP_MARKET order placed successfully for {symbol.upper()}. Response: {order}")
+            logger.info(f"STOP_MARKET order placed successfully. Response: {order}")
             return order
         except Exception as e:
-            logger.error(f"Failed to place STOP_MARKET order for {symbol.upper()} at stopPrice {formatted_stop_price}: {e}", exc_info=True)
-            raise # Re-raise
+            logger.error(f"Failed to place STOP_MARKET order: {e}", exc_info=True)
+            raise 
     
     def open_position_market_with_sl_tp(self, symbol, order_side, position_size_usdt, stop_loss_price, take_profit_price):
         """
-        Opens a new position with a MARKET order using calculated base asset quantity,
-        and immediately places both a STOP_MARKET order for stop-loss 
-        and a TAKE_PROFIT_MARKET order for take-profit.
+        Opens a new position with a MARKET order and immediately places both a 
+        STOP_MARKET order for stop-loss and a TAKE_PROFIT_MARKET order for take-profit.
 
-        :param symbol: Trading symbol, e.g., "BTCUSDT"
-        :param order_side: "BUY" (for LONG) or "SELL" (for SHORT)
+        This entire operation is based on the MARK PRICE for consistency. The quantity for the 
+        entry order is calculated using the current mark price, and the SL/TP orders are also 
+        triggered by the mark price (as configured in their placement methods).
+
+        :param symbol: Trading symbol, e.g., "BTCUSDT".
+        :param order_side: "BUY" (for a LONG position) or "SELL" (for a SHORT position).
         :param position_size_usdt: Desired nominal size of the position in USDT.
-        :param stop_loss_price: The absolute price for the stop-loss order.
-        :param take_profit_price: The absolute price for the take-profit order.
-        :return: Tuple (entry_order_response, stop_loss_order_response, take_profit_order_response)
-                 Returns None for any order that failed or if the entry order fails.
+        :param stop_loss_price: The absolute price for the stop-loss trigger.
+        :param take_profit_price: The absolute price for the take-profit trigger.
+        :return: Tuple containing the responses for the (entry_order, stop_loss_order, take_profit_order).
+                 Returns None for any order that failed.
         """
         logger.info(f"Attempting to open {order_side.upper()} position for {symbol.upper()} (target nominal size: {position_size_usdt} USDT) "
                     f"with SL at {stop_loss_price} and TP at {take_profit_price}.")
@@ -319,88 +320,83 @@ class BinanceFuturesClient:
         stop_loss_order_response = None
         take_profit_order_response = None
 
-        # 1. Get current price to calculate base asset quantity
-        current_price = self.get_ticker_price(symbol)
-        if not current_price or current_price <= 0:
-            logger.error(f"Could not fetch valid current price for {symbol.upper()} (got: {current_price}). Cannot calculate quantity for entry order.")
-            return entry_order_response, stop_loss_order_response, take_profit_order_response # Return Nones
+        # 1. Get current MARK PRICE to calculate the base asset quantity for the entry order.
+        # This ensures consistency with the SL/TP triggers which also use Mark Price.
+        current_mark_price = self.get_mark_price(symbol)
+        if not current_mark_price or current_mark_price <= 0:
+            logger.error(f"Could not fetch a valid MARK PRICE for {symbol.upper()} (got: {current_mark_price}). Cannot calculate quantity for entry order.")
+            return entry_order_response, stop_loss_order_response, take_profit_order_response
 
-        # Calculate quantity in base asset
-        quantity_in_base_asset = position_size_usdt / current_price
-        logger.info(f"Calculated base asset quantity for {position_size_usdt} USDT entry at price {current_price} for {symbol.upper()}: {quantity_in_base_asset}")
-        # Note: _format_quantity will be called inside place_market_order
-
-        # 2. Place the MARKET order to open the position
+        # Calculate the quantity in the base asset (e.g., amount of BTC for BTCUSDT).
+        quantity_in_base_asset = position_size_usdt / current_mark_price
+        logger.info(f"Calculated base asset quantity for {position_size_usdt} USDT entry at MARK PRICE {current_mark_price} for {symbol.upper()}: {quantity_in_base_asset}")
+        
+        # 2. Place the MARKET order to open the position using the calculated quantity.
         try:
-            # Call the version of place_market_order that only accepts 'quantity'
             entry_order_response = self.place_market_order(
                 symbol=symbol, 
                 side=order_side, 
                 quantity=quantity_in_base_asset 
             )
         except ValueError as ve: 
-            # Catches ValueErrors from _format_quantity or pre-API checks in place_market_order
+            # Catch ValueErrors from _format_quantity or other pre-API checks in place_market_order.
             logger.error(f"ValueError during market entry placement step: {ve}", exc_info=False) 
-            return entry_order_response, stop_loss_order_response, take_profit_order_response
+            return None, None, None
         except Exception as e: 
-            # Catches other exceptions (e.g., Binance API errors re-raised by place_market_order)
+            # Catch other exceptions like Binance API errors re-raised from place_market_order.
             logger.error(f"Unexpected exception during market entry placement step: {e}", exc_info=True)
+            return None, None, None
+
+        # 3. Verify the entry order was filled and get the executed quantity.
+        if not entry_order_response or entry_order_response.get('status') != 'FILLED':
+            logger.error(f"Market entry order for {order_side.upper()} {symbol.upper()} FAILED or was not filled. Response: {entry_order_response}")
             return entry_order_response, stop_loss_order_response, take_profit_order_response
 
-        if not entry_order_response or 'orderId' not in entry_order_response:
-            logger.error(f"Market entry order for {order_side.upper()} {symbol.upper()} FAILED or did not return an orderId. Response: {entry_order_response}")
-            return entry_order_response, stop_loss_order_response, take_profit_order_response
-
-        # Market orders with RESULT response type should contain executedQty
         executed_qty_str = entry_order_response.get('executedQty')
-        # Ensure status is FILLED as well, though for MARKET orders with RESULT it usually is.
-        order_status = entry_order_response.get('status')
-
-        if order_status != 'FILLED' or not executed_qty_str or float(executed_qty_str) == 0:
-            logger.error(f"Market entry order {entry_order_response.get('orderId')} for {symbol.upper()} status is '{order_status}' "
-                         f"or executedQty is missing/zero ({executed_qty_str}). Cannot place SL/TP. Response: {entry_order_response}")
+        if not executed_qty_str or float(executed_qty_str) == 0:
+            logger.error(f"Market entry order {entry_order_response.get('orderId')} for {symbol.upper()} did not fill or executedQty is zero. Cannot place SL/TP. Response: {entry_order_response}")
             return entry_order_response, stop_loss_order_response, take_profit_order_response
         
         executed_quantity = float(executed_qty_str)
         logger.info(f"Market entry order {entry_order_response.get('orderId')} for {symbol.upper()} FILLED. "
                     f"Executed Quantity: {executed_quantity}. Avg Price: {entry_order_response.get('avgPrice')}")
 
-        # Determine side for SL and TP orders (opposite of entry order side)
+        # Determine the side for the closing SL and TP orders (opposite of entry order).
         sl_tp_side = "SELL" if order_side.upper() == "BUY" else "BUY"
         
-        # 3. Place the STOP_MARKET order for stop-loss
+        # 4. Place the STOP_MARKET order for stop-loss.
         try:
             stop_loss_order_response = self.place_stop_market_order(
                 symbol=symbol, 
                 side=sl_tp_side, 
                 quantity=executed_quantity, 
                 stop_price=stop_loss_price, 
-                reduce_only=True
+                reduce_only=True,
+                trigger_on_mark_price=True # Explicitly trigger on Mark Price
             )
         except Exception as e:
-            # place_stop_market_order should log the detailed error and re-raise
             logger.error(f"Exception during stop-loss placement (entry order {entry_order_response.get('orderId')} was successful): {e}", exc_info=True) 
-            # Continue to try placing TP order even if SL fails
         
         if not stop_loss_order_response or 'orderId' not in stop_loss_order_response:
-            logger.warning(f"Market entry {entry_order_response.get('orderId')} placed, but FAILED to place stop-loss or SL orderId missing. SL Response: {stop_loss_order_response}")
+            logger.warning(f"Market entry {entry_order_response.get('orderId')} placed, but FAILED to place subsequent stop-loss. SL Response: {stop_loss_order_response}")
         else:
             logger.info(f"Stop-loss order {stop_loss_order_response.get('orderId')} successfully placed for entry {entry_order_response.get('orderId')}.")
 
-        # 4. Place the TAKE_PROFIT_MARKET order
+        # 5. Place the TAKE_PROFIT_MARKET order.
         try:
             take_profit_order_response = self.place_take_profit_market_order(
                 symbol=symbol,
                 side=sl_tp_side,
                 quantity=executed_quantity,
                 stop_price=take_profit_price, 
-                reduce_only=True
+                reduce_only=True,
+                trigger_on_mark_price=True # Explicitly trigger on Mark Price
             )
         except Exception as e:
             logger.error(f"Exception during take-profit placement (entry order {entry_order_response.get('orderId')} was successful): {e}", exc_info=True)
 
         if not take_profit_order_response or 'orderId' not in take_profit_order_response:
-            logger.warning(f"Market entry {entry_order_response.get('orderId')} placed, but FAILED to place take-profit or TP orderId missing. TP Response: {take_profit_order_response}")
+            logger.warning(f"Market entry {entry_order_response.get('orderId')} placed, but FAILED to place take-profit. TP Response: {take_profit_order_response}")
         else:
             logger.info(f"Take-profit order {take_profit_order_response.get('orderId')} successfully placed for entry {entry_order_response.get('orderId')}.")
 
@@ -710,6 +706,62 @@ class BinanceFuturesClient:
             if hasattr(e, 'error_code') and e.error_code == -2011:
                 logger.warning(f"Order {order_id} likely already filled or cancelled (error -2011).")
                 return {"status": "ALREADY_CLOSED_OR_CANCELLED"}
+            return None
+        
+    def get_trades_for_order(self, symbol, order_id):
+        """
+        Fetches trade details for a specific order by its ID by querying recent account trades.
+        This is used to get the exact commission paid for a trade.
+        """
+        logger.debug(f"Fetching trade details for orderId {order_id} on {symbol.upper()}...")
+        try:
+            # The userTrades endpoint doesn't filter by orderId, so we fetch recent trades
+            # for the symbol and filter by orderId on our side. Limit=50 should be sufficient
+            # if this is called shortly after an order is filled.
+            # Using the method name you found: get_account_trades
+            my_trades = self.client.get_account_trades(symbol=symbol.upper(), limit=50, recvWindow=5000)
+            
+            order_trades = []
+            total_commission = 0.0
+            commission_asset = ''
+            
+            for trade in my_trades:
+                # Compare IDs as strings for safety, as API might return them as int or str
+                if str(trade.get('orderId')) == str(order_id): 
+                    order_trades.append(trade)
+                    total_commission += float(trade.get('commission', 0.0))
+                    commission_asset = trade.get('commissionAsset', '')
+
+            if order_trades:
+                logger.info(f"Found {len(order_trades)} trade(s) for orderId {order_id}. "
+                            f"Total commission: {total_commission} {commission_asset}")
+                return {
+                    "trades": order_trades,
+                    "total_commission": total_commission,
+                    "commission_asset": commission_asset
+                }
+            else:
+                logger.warning(f"No associated trades found for orderId {order_id} in recent trades. "
+                               "This might be okay if the order was canceled before filling.")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching account trades for orderId {order_id} on {symbol.upper()}: {e}", exc_info=True)
+            return None
+
+    def get_mark_price(self, symbol):
+        """Fetches the mark price for a specific symbol."""
+        logger.debug(f"Fetching mark price for {symbol.upper()}...")
+        try:
+            # The library method is usually named mark_price
+            mark_price_data = self.client.mark_price(symbol=symbol.upper())
+            price = float(mark_price_data['markPrice'])
+            logger.info(f"Current mark price for {symbol.upper()}: {price}")
+            return price
+        except AttributeError:
+             logger.error(f"'mark_price' method not found on client object. Please check your library version.", exc_info=True)
+             return None
+        except Exception as e:
+            logger.error(f"Error fetching mark price for {symbol.upper()}: {e}", exc_info=True)
             return None
         
 if __name__ == '__main__':

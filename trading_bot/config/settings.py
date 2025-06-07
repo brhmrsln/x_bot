@@ -63,6 +63,8 @@ LEVERAGE = int(os.getenv(LEVERAGE_KEY_IN_ENV, DEFAULT_LEVERAGE_FOR_MODE))
 
 DEFAULT_SYMBOL = os.getenv("DEFAULT_TRADING_SYMBOL", "BTCUSDT")
 
+MIN_24H_QUOTE_VOLUME = os.getenv("MIN_24H_QUOTE_VOLUME") 
+
 # --- Logging Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper() # Ensure log level is uppercase
 LOG_FILE = os.getenv("LOG_FILE", f"trading_bot_{TRADING_MODE.lower()}.log") # Mode-specific log file name
