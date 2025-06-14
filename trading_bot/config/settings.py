@@ -56,7 +56,18 @@ STRATEGY_BOLLINGER_STD_DEV = int(os.getenv("STRATEGY_BOLLINGER_STD_DEV", 2))
 
 # --- Logging Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
-LOG_FILE = os.getenv("LOG_FILE", f"trading_bot_{TRADING_MODE.lower()}.log")
+
+
+# --- Data and Log File Paths ---
+# Define absolute paths for data and log directories within the project root.
+DATA_DIR = os.path.join(project_root_dir, "data")
+LOG_DIR = os.path.join(project_root_dir, "logs")
+
+TRADE_HISTORY_CSV_PATH = os.path.join(DATA_DIR, "trade_history.csv")
+LOG_FILE_PATH = os.path.join(LOG_DIR, f"trading_bot_{TRADING_MODE.lower()}.log")
+
+# --- Logging Configuration ---
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 
 # --- Telegram Notification Settings ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
