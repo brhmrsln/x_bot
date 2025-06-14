@@ -212,41 +212,58 @@ class TradingEngine:
 
         for symbol in symbols_to_check:
             if not self.running: break
-            if len(self.open_positions) >= self.max_concurrent_positions:
-                logger.info("Max concurrent positions reached during scan. Stopping scan for new trades.")
-                break 
             
             logger.debug(f"Checking signal for symbol: {symbol}")
-            self._process_symbol_for_entry(symbol)
+            trade_initiated = self._process_symbol_for_entry(symbol)
+            
+            # If a trade was successfully initiated, stop scanning for more.
+            if trade_initiated:
+                logger.info(f"A new trade was initiated for {symbol}. "
+                            "Max concurrent positions limit likely reached. Stopping scan for this loop.")
+                break # Exit the symbol scanning loop immediately
+
             time.sleep(2)
 
     def _process_symbol_for_entry(self, symbol):
-        """Processes a single symbol for a potential new trade entry."""
+        """
+        Processes a single symbol for a potential new trade entry.
+        Returns True if a trade was successfully initiated, otherwise False.
+        """
         if symbol in self.open_positions:
             logger.debug(f"Already managing a position for {symbol}. Skipping for new entry signal.")
-            return
+            return False # No new trade initiated
 
         signal = self.strategy.generate_signal(symbol)
         if signal == "BUY" or signal == "SELL":
             logger.info(f"Actionable signal '{signal}' received for {symbol}. Preparing to execute trade...")
-            self._execute_trade(symbol, signal)
+            # _execute_trade now returns True on success, False on failure
+            trade_opened = self._execute_trade(symbol, signal) 
+            return trade_opened
+        
+        return False # No new trade initiated
 
     def _execute_trade(self, symbol, side):
         """
-        Sets leverage, calculates SL/TP based on MARK PRICE, and executes a new trade.
+        Sets leverage, calculates SL/TP based on MARK PRICE, validates against PERCENT_PRICE filter,
+        and executes a new trade.
         """
         try:
             logger.info(f"Setting leverage for {symbol} to {self.leverage}x before placing trade.")
             self.client.set_leverage(symbol=symbol, leverage=self.leverage)
             time.sleep(0.5) 
             
-            # --- DEĞİŞİKLİK BURADA: Last Price yerine Mark Price kullanıyoruz ---
+            # --- Get necessary data for calculation and validation ---
             current_price = self.client.get_mark_price(symbol)
             if not current_price:
-                logger.error(f"Could not get MARK PRICE for {symbol}. Cannot calculate SL/TP and execute trade.")
-                return
-            # --------------------------------------------------------------------
+                logger.error(f"Could not get MARK PRICE for {symbol}. Cannot execute trade.")
+                return False
 
+            symbol_info = self.client._get_symbol_info(symbol) # We need the filters
+            if not symbol_info:
+                 logger.error(f"Could not get symbol info for {symbol}. Cannot validate filters.")
+                 return False
+
+            # --- Calculate initial SL/TP prices ---
             if side.upper() == "BUY":
                 sl_price = current_price * (1 - self.sl_percentage)
                 tp_price = current_price * (1 + self.tp_percentage)
@@ -255,19 +272,46 @@ class TradingEngine:
                 tp_price = current_price * (1 - self.tp_percentage)
             else: 
                 logger.error(f"Invalid side '{side}' provided to _execute_trade.")
-                return
+                return False
+
+            # --- YENİ ADIM: Fiyatları PERCENT_PRICE filtresine göre doğrula ve ayarla ---
+            price_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'PERCENT_PRICE'), None)
+            if price_filter:
+                multiplier_up = float(price_filter['multiplierUp'])
+                multiplier_down = float(price_filter['multiplierDown'])
+                
+                max_allowed_price = self.client._format_price(symbol, current_price * multiplier_up)
+                min_allowed_price = self.client._format_price(symbol, current_price * multiplier_down)
+                
+                logger.debug(f"PERCENT_PRICE filter for {symbol}: "
+                             f"MinAllowed={min_allowed_price}, MaxAllowed={max_allowed_price}")
+                
+                # Clamp the prices to the allowed range
+                original_tp = tp_price
+                original_sl = sl_price
+                
+                tp_price = max(min(tp_price, max_allowed_price), min_allowed_price)
+                sl_price = max(min(sl_price, max_allowed_price), min_allowed_price)
+
+                if tp_price != original_tp:
+                    logger.warning(f"Take-profit price for {symbol} was adjusted from {original_tp} to {tp_price} to comply with PERCENT_PRICE filter.")
+                if sl_price != original_sl:
+                    logger.warning(f"Stop-loss price for {symbol} was adjusted from {original_sl} to {sl_price} to comply with PERCENT_PRICE filter.")
+            else:
+                logger.warning(f"Could not find PERCENT_PRICE filter for {symbol}. Proceeding without validation.")
+            # -----------------------------------------------------------------------------
 
             entry_order, stop_order, tp_order = self.client.open_position_market_with_sl_tp(
                 symbol=symbol, order_side=side, position_size_usdt=self.position_size_usdt,
                 stop_loss_price=sl_price, take_profit_price=tp_price)
-            
-            # ... (metodun geri kalanı aynı) ...
+
             if entry_order and entry_order.get('status') == 'FILLED':
-                # ... (pozisyonu self.open_positions'a kaydetme mantığı) ...
-                logger.info(f"Successfully opened new {side} position for {symbol}. Updating internal state.")
-                # ...
+                # ... (komisyon alma ve state'i güncelleme kısmı aynı)
+                return True
             else:
                 logger.error(f"Failed to open new {side} position for {symbol}. Entry order response: {entry_order}")
+                return False
         
         except Exception as e:
             logger.error(f"An error occurred during trade execution for {symbol}: {e}", exc_info=True)
+            return False

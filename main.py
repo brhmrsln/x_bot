@@ -56,15 +56,14 @@ def main():
     # 3. Initialize the Trading Strategy
     # Strategy parameters can be defined here or loaded from a config file
     strategy_params = {
-        # "symbol" is now handled by the market_scanner, but we can have a default for other uses
         "symbol": settings.DEFAULT_SYMBOL, 
-        "kline_interval": "5m", 
-        "kline_limit": 100,
-        "short_ema_period": 12,
-        "long_ema_period": 26
+        "kline_interval": settings.STRATEGY_KLINE_INTERVAL, 
+        "kline_limit": settings.STRATEGY_KLINE_LIMIT,
+        "short_ema_period": settings.STRATEGY_SHORT_EMA_PERIOD,
+        "long_ema_period": settings.STRATEGY_LONG_EMA_PERIOD
     }
     strategy = Strategy(client=client, strategy_params=strategy_params)
-    logger.info("Trading Strategy initialized successfully.")
+    logger.info("Trading Strategy initialized successfully with configurable parameters.")
 
     # 4. Initialize and run the Trading Engine
     # The engine is the core that brings the client and strategy together.
