@@ -1,17 +1,22 @@
+# --- Core Binance Connector ---
 binance-futures-connector>=3.5
+
+# --- Data Analysis and Technical Indicators ---
+pandas
+pandas-ta
+
+# --- Core Dependencies ---
+# IMPORTANT: To avoid version conflicts that caused the ImportError.
+numpy<2.0
+
+# python-dateutil is usually a dependency of pandas, 
+# but specifying it doesn't hurt.
 python-dateutil>=2.9
 
+# --- Utility Libraries ---
+python-dotenv  # For loading .env files
+colorlog       # For colored logging
 
-pandas>=2.2.3
-numpy>=2.1
-ta>=0.11
-
-
-rich>=13.7
-
-backoff>=2.2
-
-python-dotenv
-
-colorlog
-
+# --- Optional but Recommended Libraries ---
+rich>=13.7     # For rich text formatting in the terminal
+backoff>=2.2   # Very useful for retrying API calls in case of temporary network errors
