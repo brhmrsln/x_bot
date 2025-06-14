@@ -176,42 +176,64 @@ class TradingEngine:
             self._save_state()
 
     def _handle_trade_closure(self, symbol, entry_trade_info, closing_order, exit_reason):
-        """Calculates PnL and logs the completed trade to the CSV file."""
+        """
+        Fetches final PnL and commission from the exchange for the closing trade
+        and logs the completed trade to the CSV file.
+        """
         logger.info(f"Handling closure of trade for {symbol} due to {exit_reason}.")
         
-        exit_price = float(closing_order.get('avgPrice', 0))
+        closing_order_id = closing_order.get('orderId')
+        if not closing_order_id:
+            logger.error(f"Could not log trade for {symbol} because closing order ID is missing.")
+            return
+
+        # Fetch trade details for the CLOSING order to get accurate PnL and commission
+        closing_trade_details = self.client.get_trades_for_order(symbol, closing_order_id)
+        
+        if not closing_trade_details:
+            logger.error(f"Could not get closing trade details for order {closing_order_id}. Cannot log PnL.")
+            return
+            
+        # Get PnL and commission directly from the exchange's data
+        net_pnl_usdt = closing_trade_details.get('total_pnl', 0.0)
+        exit_commission = closing_trade_details.get('total_commission', 0.0)
+        
+        # Get entry data from our saved state
         entry_price = entry_trade_info.get('entry_price', 0)
         quantity = entry_trade_info.get('quantity', 0)
         side = entry_trade_info.get('side')
         entry_commission = entry_trade_info.get('entry_commission', 0.0)
-
-        exit_commission = 0.0
-        closing_order_id = closing_order.get('orderId')
-        if closing_order_id:
-            trade_details = self.client.get_trades_for_order(symbol, closing_order_id)
-            if trade_details:
-                exit_commission = trade_details.get('total_commission', 0.0)
+        
         total_commission = entry_commission + exit_commission
         
-        if entry_price == 0 or quantity == 0:
-            logger.error(f"Could not calculate PnL for {symbol} due to missing entry data (price or quantity is zero).")
-            return
-            
-        pnl_usdt = 0.0
-        if side.upper() == "LONG": pnl_usdt = (exit_price - entry_price) * quantity
-        elif side.upper() == "SHORT": pnl_usdt = (entry_price - exit_price) * quantity
+        # The net_pnl_usdt from the API already includes commission, but for logging purposes, we can show it.
+        # Let's adjust for clarity: The API PnL is often net of commissions already.
+        # If Binance's `realizedPnl` *doesn't* include commission, we subtract it. If it does, we don't.
+        # Let's assume `realizedPnl` from the API is the final, net PnL.
         
-        net_pnl_usdt = pnl_usdt - total_commission
         entry_nominal_value = entry_price * quantity
         pnl_percentage = (net_pnl_usdt / entry_nominal_value) if entry_nominal_value != 0 else 0.0
         
-        logger.info(f"Trade Closed for {symbol}: Gross PnL={pnl_usdt:.4f} USDT, Total Commission={total_commission:.6f}, Net PnL={net_pnl_usdt:.4f} USDT")
+        # We use the closing order's average price as the exit price for logging
+        exit_price = float(closing_order.get('avgPrice', 0))
+
+        logger.info(f"Trade Closed for {symbol}: "
+                    f"Final Net PnL (from API)={net_pnl_usdt:.4f} USDT, "
+                    f"Total Commission={total_commission:.6f}")
         
         log_trade({
-            'symbol': symbol, 'side': side, 'quantity': quantity, 'entry_price': entry_price,
-            'exit_price': exit_price, 'pnl_usdt': net_pnl_usdt, 'pnl_percentage': pnl_percentage,
-            'entry_commission': entry_commission, 'exit_commission': exit_commission, 'total_commission': total_commission,
-            'entry_reason': entry_trade_info.get('entry_reason', 'N/A'), 'exit_reason': exit_reason
+            'symbol': symbol,
+            'side': side,
+            'quantity': quantity,
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'pnl_usdt': net_pnl_usdt,
+            'pnl_percentage': pnl_percentage,
+            'entry_commission': entry_commission,
+            'exit_commission': exit_commission,
+            'total_commission': total_commission,
+            'entry_reason': entry_trade_info.get('entry_reason', 'N/A'),
+            'exit_reason': exit_reason
         })
 
     def _scan_for_new_trades(self):

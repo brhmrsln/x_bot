@@ -710,44 +710,37 @@ class BinanceFuturesClient:
         
     def get_trades_for_order(self, symbol, order_id):
         """
-        Fetches trade details for a specific order by its ID by querying recent account trades.
-        This is used to get the exact commission paid for a trade.
+        Retrieves all trade parts for a specific order ID and calculates the
+        total commission and total realized PnL for that order.
         """
-        logger.debug(f"Fetching trade details for orderId {order_id} on {symbol.upper()}...")
+        logger.debug(f"Fetching trade details for orderId {order_id} on {symbol}...")
         try:
-            # The userTrades endpoint doesn't filter by orderId, so we fetch recent trades
-            # for the symbol and filter by orderId on our side. Limit=50 should be sufficient
-            # if this is called shortly after an order is filled.
-            # Using the method name you found: get_account_trades
-            my_trades = self.client.get_account_trades(symbol=symbol.upper(), limit=50, recvWindow=5000)
+            # Get all account trades for the symbol
+            all_trades = self.client.get_account_trades(symbol=symbol, recvWindow=5000)
             
-            order_trades = []
-            total_commission = 0.0
-            commission_asset = ''
-            
-            for trade in my_trades:
-                # Compare IDs as strings for safety, as API might return them as int or str
-                if str(trade.get('orderId')) == str(order_id): 
-                    order_trades.append(trade)
-                    total_commission += float(trade.get('commission', 0.0))
-                    commission_asset = trade.get('commissionAsset', '')
+            # Filter for trades that match the provided order_id
+            order_trades = [trade for trade in all_trades if trade.get('orderId') == order_id]
 
-            if order_trades:
-                logger.info(f"Found {len(order_trades)} trade(s) for orderId {order_id}. "
-                            f"Total commission: {total_commission} {commission_asset}")
-                return {
-                    "trades": order_trades,
-                    "total_commission": total_commission,
-                    "commission_asset": commission_asset
-                }
-            else:
-                logger.warning(f"No associated trades found for orderId {order_id} in recent trades. "
-                               "This might be okay if the order was canceled before filling.")
+            if not order_trades:
+                logger.warning(f"No trades found for orderId {order_id}. This can happen for non-filled orders.")
                 return None
-        except Exception as e:
-            logger.error(f"Error fetching account trades for orderId {order_id} on {symbol.upper()}: {e}", exc_info=True)
-            return None
 
+            # Calculate total commission and total realized PnL from all parts of the trade
+            total_commission = sum(float(trade.get('commission', 0.0)) for trade in order_trades)
+            total_pnl = sum(float(trade.get('realizedPnl', 0.0)) for trade in order_trades)
+
+            logger.info(f"Found {len(order_trades)} trade(s) for orderId {order_id}. "
+                        f"Total Commission: {total_commission} USDT, Total Realized PnL: {total_pnl} USDT")
+            
+            return {
+                "trades": order_trades,
+                "total_commission": total_commission,
+                "total_pnl": total_pnl
+            }
+        except Exception as e:
+            logger.error(f"Failed to get trades for order {order_id} on symbol {symbol}: {e}", exc_info=True)
+            return None
+        
     def get_mark_price(self, symbol):
         """Fetches the mark price for a specific symbol."""
         logger.debug(f"Fetching mark price for {symbol.upper()}...")
