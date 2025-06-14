@@ -10,6 +10,7 @@ try:
     from trading_bot.core.strategy import Strategy
     from trading_bot.core.market_scanner import get_top_volume_usdt_futures_symbols
     from trading_bot.utils.trade_logger import log_trade
+    from trading_bot.utils.notifier import send_telegram_message
 except ImportError as e:
     print(f"CRITICAL: Failed to import necessary modules in TradingEngine: {e}")
     import sys
@@ -235,6 +236,17 @@ class TradingEngine:
             'entry_reason': entry_trade_info.get('entry_reason', 'N/A'),
             'exit_reason': exit_reason
         })
+        
+        # Send notification
+        pnl_icon = "✅" if net_pnl_usdt >= 0 else "🔻"
+        msg = (f"{pnl_icon} **POSITION CLOSED** {pnl_icon}\n\n"
+            f"Symbol: `{symbol}`\n"
+            f"Side: `{side}`\n"
+            f"Exit Reason: `{exit_reason}`\n"
+            f"Entry Price: `{entry_price}`\n"
+            f"Exit Price: `{exit_price}`\n"
+            f"**Net PnL: `{net_pnl_usdt:.4f} USDT`**")
+        send_telegram_message(msg)
 
     def _scan_for_new_trades(self):
         """Scans the market and processes symbols for potential new entries."""
@@ -337,6 +349,12 @@ class TradingEngine:
                     "take_profit_order_id": tp_order.get('orderId') if tp_order else None, "entry_reason": "EMA_CROSSOVER",
                 }
                 self._save_state()
+                msg = (f"🚀 **NEW POSITION OPENED** 🚀\n\n"
+                    f"Symbol: `{symbol}`\n"
+                    f"Side: `{side}`\n"
+                    f"Quantity: `{self.open_positions[symbol]['quantity']}`\n"
+                    f"Entry Price: `{self.open_positions[symbol]['entry_price']}`")
+                send_telegram_message(msg)
                 return True
             else:
                 logger.error(f"Failed to open new {side} position for {symbol}. Entry order response: {entry_order}")

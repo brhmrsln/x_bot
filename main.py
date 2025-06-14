@@ -15,6 +15,7 @@ try:
     from trading_bot.exchange.binance_client import BinanceFuturesClient
     from trading_bot.core.strategy import Strategy
     from trading_bot.core.trading_engine import TradingEngine
+    from trading_bot.utils.notifier import send_telegram_message
 except ImportError:
     import os
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__)))
@@ -26,6 +27,7 @@ except ImportError:
     from trading_bot.exchange.binance_client import BinanceFuturesClient
     from trading_bot.core.strategy import Strategy
     from trading_bot.core.trading_engine import TradingEngine
+    from trading_bot.utils.notifier import send_telegram_message
 
 # --- Main Application Logic ---
 def main():
@@ -34,6 +36,8 @@ def main():
     logger.info("=====================================================")
     logger.info("              STARTING ALGO TRADING BOT              ")
     logger.info("=====================================================")
+
+    send_telegram_message("✅ **X_bot STARTED** ✅")
     
     try:
         # 1. Initialize the Binance Futures Client
@@ -82,6 +86,7 @@ if __name__ == "__main__":
         # The engine's own loop handles the shutdown message, so we can just print a final exit message.
         print("\nINFO: KeyboardInterrupt received. Bot shutting down.")
     finally:
+        send_telegram_message("🛑 **X_bot SHUTDOWN**")
         if logging.getLogger("trading_bot").hasHandlers():
             logging.getLogger("trading_bot").info("Bot shutdown complete.")
         else:

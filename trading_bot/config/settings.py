@@ -58,6 +58,10 @@ STRATEGY_BOLLINGER_STD_DEV = int(os.getenv("STRATEGY_BOLLINGER_STD_DEV", 2))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 LOG_FILE = os.getenv("LOG_FILE", f"trading_bot_{TRADING_MODE.lower()}.log")
 
+# --- Telegram Notification Settings ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 # --- Startup Configuration Printout ---
 # This part can be removed or commented out later, but it's useful for debugging.
 print("--- Trading Bot Configuration Loaded ---")

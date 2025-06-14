@@ -20,3 +20,6 @@ colorlog       # For colored logging
 # --- Optional but Recommended Libraries ---
 rich>=13.7     # For rich text formatting in the terminal
 backoff>=2.2   # Very useful for retrying API calls in case of temporary network errors
+requests       # Telegram
+
+
