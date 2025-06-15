@@ -38,8 +38,10 @@ MIN_24H_QUOTE_VOLUME = float(os.getenv("MIN_24H_QUOTE_VOLUME", default_min_volum
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", 1))
 POSITION_SIZE_USDT = float(os.getenv("POSITION_SIZE_USDT", 500.0)) # Default set to 500 as you requested
 LEVERAGE = int(os.getenv("TRADING_LEVERAGE", 10))
-STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE", 0.01))
-TAKE_PROFIT_PERCENTAGE = float(os.getenv("TAKE_PROFIT_PERCENTAGE", 0.02))
+
+ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
+ATR_SL_MULTIPLIER = float(os.getenv("ATR_SL_MULTIPLIER", 1.5))
+ATR_TP_MULTIPLIER = float(os.getenv("ATR_TP_MULTIPLIER", 3.0))
 
 # --- Strategy Parameters (Loaded from .env) ---
 STRATEGY_KLINE_INTERVAL = os.getenv("STRATEGY_KLINE_INTERVAL", "15m")
@@ -65,6 +67,8 @@ LOG_DIR = os.path.join(project_root_dir, "logs")
 
 TRADE_HISTORY_CSV_PATH = os.path.join(DATA_DIR, "trade_history.csv")
 LOG_FILE_PATH = os.path.join(LOG_DIR, f"trading_bot_{TRADING_MODE.lower()}.log")
+
+STATE_FILE_PATH = os.path.join(DATA_DIR, "open_positions.json")
 
 # --- Logging Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()

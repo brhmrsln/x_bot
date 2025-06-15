@@ -757,6 +757,35 @@ class BinanceFuturesClient:
             logger.error(f"Error fetching mark price for {symbol.upper()}: {e}", exc_info=True)
             return None
         
+    def close_position_market(self, symbol, position_side):
+        """
+        Closes the entire position for a symbol at market price using closePosition=true.
+        This is the most reliable way to ensure a position is fully closed and no dust remains.
+
+        :param symbol: The symbol to close the position for (e.g., "BTCUSDT").
+        :param position_side: The side of the position to close ("LONG" or "SHORT").
+        :return: The order response from the exchange, or None on error.
+        """
+        # The order side must be the opposite of the position side to close it.
+        order_side = "SELL" if position_side.upper() == "LONG" else "BUY"
+        
+        logger.info(f"Attempting to close entire {position_side} position for {symbol} with a {order_side} MARKET order...")
+        params = {
+            'symbol': symbol.upper(),
+            'side': order_side,
+            'type': 'MARKET',
+            'closePosition': 'true', # This parameter tells Binance to close the whole position
+            'newOrderRespType': 'RESULT'
+        }
+        logger.debug(f"Parameters for closePosition order: {params}")
+        try:
+            order = self.client.new_order(**params)
+            logger.info(f"closePosition MARKET order for {symbol} placed successfully. Response: {order}")
+            return order
+        except Exception as e:
+            logger.error(f"Failed to place closePosition MARKET order for {symbol}: {e}", exc_info=True)
+            return None
+        
 if __name__ == '__main__':
     standalone_logger = setup_logger(name="trading_bot") 
     standalone_logger.info("--- Testing BinanceFuturesClient Standalone with Order Placement (SL & TP) ---")
