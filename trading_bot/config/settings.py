@@ -46,15 +46,23 @@ ATR_TP_MULTIPLIER = float(os.getenv("ATR_TP_MULTIPLIER", 3.0))
 # --- Strategy Parameters (Loaded from .env) ---
 STRATEGY_KLINE_INTERVAL = os.getenv("STRATEGY_KLINE_INTERVAL", "15m")
 STRATEGY_KLINE_LIMIT = int(os.getenv("STRATEGY_KLINE_LIMIT", 200))
+# Multi-Timeframe Analysis (MTA)
 MTA_KLINE_INTERVAL = os.getenv("MTA_KLINE_INTERVAL", "1h")
-MTA_EMA_PERIOD = int(os.getenv("MTA_EMA_PERIOD", 50))
-STRATEGY_SHORT_EMA_PERIOD = int(os.getenv("STRATEGY_SHORT_EMA_PERIOD", 12))
-STRATEGY_LONG_EMA_PERIOD = int(os.getenv("STRATEGY_LONG_EMA_PERIOD", 26))
-STRATEGY_RSI_PERIOD = int(os.getenv("STRATEGY_RSI_PERIOD", 14))
-STRATEGY_RSI_OVERBOUGHT = int(os.getenv("STRATEGY_RSI_OVERBOUGHT", 70))
-STRATEGY_RSI_OVERSOLD = int(os.getenv("STRATEGY_RSI_OVERSOLD", 30))
+MTA_SHORT_EMA_PERIOD = int(os.getenv("MTA_SHORT_EMA_PERIOD", 20))
+MTA_LONG_EMA_PERIOD = int(os.getenv("MTA_LONG_EMA_PERIOD", 50))
+# Stochastic RSI
+STOCH_RSI_PERIOD = int(os.getenv("STOCH_RSI_PERIOD", 14))
+STOCH_RSI_K = int(os.getenv("STOCH_RSI_K", 3))
+STOCH_RSI_D = int(os.getenv("STOCH_RSI_D", 3))
+STOCH_RSI_OVERSOLD = int(os.getenv("STOCH_RSI_OVERSOLD", 25))
+STOCH_RSI_OVERBOUGHT = int(os.getenv("STOCH_RSI_OVERBOUGHT", 75))
+# Bollinger Bands
 STRATEGY_BOLLINGER_PERIOD = int(os.getenv("STRATEGY_BOLLINGER_PERIOD", 20))
 STRATEGY_BOLLINGER_STD_DEV = int(os.getenv("STRATEGY_BOLLINGER_STD_DEV", 2))
+# ATR Risk Management
+ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
+ATR_SL_MULTIPLIER = float(os.getenv("ATR_SL_MULTIPLIER", 1.5))
+ATR_TP_MULTIPLIER = float(os.getenv("ATR_TP_MULTIPLIER", 2.5))
 
 # --- Logging Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()

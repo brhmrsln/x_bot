@@ -44,19 +44,24 @@ def main():
         client = BinanceFuturesClient()
         logger.info("Binance Futures Client initialized successfully.")
 
-        # 2. Initialize the Trading Strategy with parameters from settings
+        # 2. Initialize the Trading Strategy
+        # Strategy parameters are now loaded from the central settings module
         strategy_params = {
             "kline_interval": settings.STRATEGY_KLINE_INTERVAL,
             "kline_limit": settings.STRATEGY_KLINE_LIMIT,
             "mta_kline_interval": settings.MTA_KLINE_INTERVAL,
-            "mta_ema_period": settings.MTA_EMA_PERIOD,
-            "short_ema_period": settings.STRATEGY_SHORT_EMA_PERIOD,
-            "long_ema_period": settings.STRATEGY_LONG_EMA_PERIOD,
-            "rsi_period": settings.STRATEGY_RSI_PERIOD,
-            "rsi_overbought": settings.STRATEGY_RSI_OVERBOUGHT,
-            "rsi_oversold": settings.STRATEGY_RSI_OVERSOLD,
+            "mta_short_ema_period": settings.MTA_SHORT_EMA_PERIOD,
+            "mta_long_ema_period": settings.MTA_LONG_EMA_PERIOD,
+            "stoch_rsi_period": settings.STOCH_RSI_PERIOD,
+            "stoch_rsi_k": settings.STOCH_RSI_K,
+            "stoch_rsi_d": settings.STOCH_RSI_D,
+            "stoch_rsi_oversold": settings.STOCH_RSI_OVERSOLD,
+            "stoch_rsi_overbought": settings.STOCH_RSI_OVERBOUGHT,
             "bollinger_period": settings.STRATEGY_BOLLINGER_PERIOD,
             "bollinger_std_dev": settings.STRATEGY_BOLLINGER_STD_DEV,
+            "atr_period": settings.ATR_PERIOD,
+            "atr_sl_multiplier": settings.ATR_SL_MULTIPLIER,
+            "atr_tp_multiplier": settings.ATR_TP_MULTIPLIER,
         }
         strategy = Strategy(client=client, strategy_params=strategy_params)
         logger.info("Trading Strategy initialized successfully.")
