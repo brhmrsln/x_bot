@@ -119,23 +119,44 @@ class Strategy:
         short_ema_crossed_down = prev[f'EMA_{self.short_ema_period}'] >= prev[f'EMA_{self.long_ema_period}'] and last[f'EMA_{self.short_ema_period}'] < last[f'EMA_{self.long_ema_period}']
         
         # --- FINAL DECISION LOGIC ---
+        
+        # BUY Signal Logic (Mean Reversion)
         if main_trend == "UP" and short_ema_crossed_up:
             logger.info(f"[{symbol} | {self.kline_interval}] Potential BUY Signal (Bullish EMA Crossover). Checking filters...")
-            if last[f'RSI_{self.rsi_period}'] < self.rsi_overbought and last['close'] > last[f'BBM_{self.bollinger_period}_{self.bollinger_std_dev:.1f}']:
-                last_atr = last[f'ATRr_{self.atr_period}']
-                stop_loss_price = last['close'] - (last_atr * self.atr_sl_multiplier)
-                take_profit_price = last['close'] + (last_atr * self.atr_tp_multiplier)
-                logger.info(f"All conditions met for {symbol}. Final Signal: BUY")
-                return {"signal": "BUY", "sl_price": stop_loss_price, "tp_price": take_profit_price}
+            # RSI Filter (Not overbought)
+            if last[f'RSI_{self.rsi_period}'] < self.rsi_overbought:
+                logger.debug(f"[{symbol}] RSI check PASSED (RSI: {last[f'RSI_{self.rsi_period}']:.2f} < {self.rsi_overbought})")
+                # Bollinger Band "Buy the Dip" Filter
+                # Check if price is in the lower half of the channel (between lower and middle band)
+                if last['close'] < last[f'BBM_{self.bollinger_period}_{self.bollinger_std_dev:.1f}'] and \
+                   last['close'] > last[f'BBL_{self.bollinger_period}_{self.bollinger_std_dev:.1f}']:
+                    logger.debug(f"[{symbol}] Bollinger Band 'Buy the Dip' check PASSED.")
+                    
+                    # All conditions met, calculate ATR-based SL/TP and return signal
+                    last_atr = last[f'ATRr_{self.atr_period}']
+                    stop_loss_price = last['close'] - (last_atr * self.atr_sl_multiplier)
+                    take_profit_price = last['close'] + (last_atr * self.atr_tp_multiplier)
+                    logger.info(f"All conditions met for {symbol}. Final Signal: BUY")
+                    return {"signal": "BUY", "sl_price": stop_loss_price, "tp_price": take_profit_price}
         
+        # SELL Signal Logic (Mean Reversion)
         if main_trend == "DOWN" and short_ema_crossed_down:
             logger.info(f"[{symbol} | {self.kline_interval}] Potential SELL Signal (Bearish EMA Crossover). Checking filters...")
-            if last[f'RSI_{self.rsi_period}'] > self.rsi_oversold and last['close'] < last[f'BBM_{self.bollinger_period}_{self.bollinger_std_dev:.1f}']:
-                last_atr = last[f'ATRr_{self.atr_period}']
-                stop_loss_price = last['close'] + (last_atr * self.atr_sl_multiplier)
-                take_profit_price = last['close'] - (last_atr * self.atr_tp_multiplier)
-                logger.info(f"All conditions met for {symbol}. Final Signal: SELL")
-                return {"signal": "SELL", "sl_price": stop_loss_price, "tp_price": take_profit_price}
+            # RSI Filter (Not oversold)
+            if last[f'RSI_{self.rsi_period}'] > self.rsi_oversold:
+                logger.debug(f"[{symbol}] RSI check PASSED (RSI: {last[f'RSI_{self.rsi_period}']:.2f} > {self.rsi_oversold})")
+                # Bollinger Band "Sell the Rip" Filter
+                # Check if price is in the upper half of the channel (between upper and middle band)
+                if last['close'] > last[f'BBM_{self.bollinger_period}_{self.bollinger_std_dev:.1f}'] and \
+                   last['close'] < last[f'BBU_{self.bollinger_period}_{self.bollinger_std_dev:.1f}']:
+                    logger.debug(f"[{symbol}] Bollinger Band 'Sell the Rip' check PASSED.")
+
+                    # All conditions met, calculate ATR-based SL/TP and return signal
+                    last_atr = last[f'ATRr_{self.atr_period}']
+                    stop_loss_price = last['close'] + (last_atr * self.atr_sl_multiplier)
+                    take_profit_price = last['close'] - (last_atr * self.atr_tp_multiplier)
+                    logger.info(f"All conditions met for {symbol}. Final Signal: SELL")
+                    return {"signal": "SELL", "sl_price": stop_loss_price, "tp_price": take_profit_price}
                     
         logger.debug(f"[{symbol}] No signal generated. Main Trend: {main_trend}, Bullish Cross: {short_ema_crossed_up}, Bearish Cross: {short_ema_crossed_down}")
         return {"signal": "HOLD"}

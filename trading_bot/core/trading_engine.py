@@ -126,71 +126,96 @@ class TradingEngine:
         logger.info("TradingEngine has been stopped.")
         
     def _manage_open_positions(self):
-        """Iterates through open positions, checks their status, and handles closure."""
+        """
+        Iterates through open positions, checks their status, and handles closure.
+        This version is robust against temporary API errors during order queries.
+        """
         if not self.open_positions:
             logger.debug("No open positions to manage.")
             return
 
         logger.info(f"Managing {len(self.open_positions)} open position(s): {list(self.open_positions.keys())}")
         
+        # We iterate over a copy of the keys because we might modify the dictionary
         symbols_to_process = list(self.open_positions.keys()) 
 
         for symbol in symbols_to_process:
-            if not self.running: break
+            if not self.running: 
+                break 
             
             trade_info = self.open_positions.get(symbol)
-            if not trade_info: continue
+            if not trade_info: 
+                continue
 
             logger.debug(f"Checking status for position: {symbol}")
 
             sl_order_id = trade_info.get("stop_loss_order_id")
             tp_order_id = trade_info.get("take_profit_order_id")
+            
+            # --- Query order statuses ---
+            sl_order_data = self.client.query_order(symbol, sl_order_id) if sl_order_id else None
+            time.sleep(0.2) # Small delay between API calls to respect rate limits
+            tp_order_data = self.client.query_order(symbol, tp_order_id) if tp_order_id else None
+
+            # --- CRITICAL SAFETY CHECK FOR API ERRORS ---
+            # If we fail to query EITHER order due to an error (query_order returns None),
+            # we must skip management for this symbol in this loop. We will try again later.
+            # This prevents making wrong decisions based on incomplete data.
+            if (sl_order_id and sl_order_data is None) or \
+            (tp_order_id and tp_order_data is None):
+                logger.warning(f"Could not query full order status for {symbol} due to an API error. "
+                            "Skipping management for this iteration. Will retry in the next loop.")
+                continue # Skip to the next symbol in our open positions list
+
+            sl_status = sl_order_data.get('status') if sl_order_data else "NOT_APPLICABLE"
+            tp_status = tp_order_data.get('status') if tp_order_data else "NOT_APPLICABLE"
+            
             is_closed = False
             closing_order_data = None
             exit_reason = "UNKNOWN"
-            
-            sl_order_data = self.client.query_order(symbol, sl_order_id) if sl_order_id else None
-            time.sleep(0.2)
-            tp_order_data = self.client.query_order(symbol, tp_order_id) if tp_order_id else None
 
-            sl_status = sl_order_data.get('status') if sl_order_data else None
-            tp_status = tp_order_data.get('status') if tp_order_data else None
-
+            # --- Logic for FILLED Orders ---
             if sl_status == 'FILLED':
                 logger.info(f"STOP-LOSS order {sl_order_id} for {symbol} has been FILLED.")
                 closing_order_data, exit_reason = sl_order_data, "STOP_LOSS"
-                if tp_order_id: self.client.cancel_order(symbol, tp_order_id)
                 is_closed = True
             elif tp_status == 'FILLED':
                 logger.info(f"TAKE-PROFIT order {tp_order_id} for {symbol} has been FILLED.")
                 closing_order_data, exit_reason = tp_order_data, "TAKE_PROFIT"
-                if sl_order_id: self.client.cancel_order(symbol, sl_order_id)
                 is_closed = True
             
+            # --- Logic for Inactive (Canceled, Expired, etc.) Orders ---
             elif (sl_order_id and sl_status not in ['NEW', 'PARTIALLY_FILLED']) or \
-                 (tp_order_id and tp_status not in ['NEW', 'PARTIALLY_FILLED']):
-                logger.warning(f"Protective order(s) for {symbol} are inactive but not FILLED. SL: {sl_status}, TP: {tp_status}. Assuming manual intervention.")
+                (tp_order_id and tp_status not in ['NEW', 'PARTIALLY_FILLED']):
+                logger.warning(f"Protective order(s) for {symbol} are no longer active (SL: {sl_status}, TP: {tp_status}). Cleaning up state.")
                 is_closed = True
-                closing_order_data = None 
+                closing_order_data = None # We don't have fill data for this event
             
+            # --- If a closure event was detected, handle it ---
             if is_closed:
+                # If closed by a FILLED order, log PnL. Otherwise, just clean up.
                 if closing_order_data: 
                     self._handle_trade_closure(symbol, trade_info, closing_order_data, exit_reason)
                 
-                logger.info(f"Performing final cleanup check for {symbol} to remove any dust.")
+                # Cancel all open orders for this symbol to be safe before dust check
+                logger.info(f"Position for {symbol} is being closed/cleaned up. Canceling any remaining open orders.")
+                self.client.cancel_all_open_orders(symbol=symbol)
                 time.sleep(1)
+
+                # Final "dust" cleanup check
                 dust_position_info = self.client.get_position_info(symbol)
-                
                 if dust_position_info:
-                    logger.warning(f"Dust position found for {symbol}. Sending final close order to sweep. Dust: {dust_position_info}")
+                    logger.warning(f"Dust position found for {symbol}. Sending final close order. Dust: {dust_position_info}")
                     self.client.close_position_market(symbol=symbol, position_side=trade_info['side'])
                 
+                # Remove the position from our active state management
                 if symbol in self.open_positions:
                     del self.open_positions[symbol]
                     logger.info(f"Removed processed position {symbol} from active state.")
-                    self._save_state()
+                    self._save_state() # Save the updated state to file
             else:
-                 logger.debug(f"Position for {symbol} is still open. SL Status: {sl_status}, TP Status: {tp_status}")
+                logger.debug(f"Position for {symbol} is still open. SL Status: {sl_status}, TP Status: {tp_status}")
+
             time.sleep(1)
 
     def _handle_trade_closure(self, symbol, entry_trade_info, closing_order, exit_reason):
