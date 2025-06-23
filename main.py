@@ -13,9 +13,9 @@ try:
     from trading_bot.utils.logger_config import setup_logger
     from trading_bot.config import settings
     from trading_bot.exchange.binance_client import BinanceFuturesClient
-    from trading_bot.core.strategy import Strategy
     from trading_bot.core.trading_engine import TradingEngine
     from trading_bot.utils.notifier import send_telegram_message
+    from trading_bot.core.strategy_factory import StrategyFactory
 except ImportError:
     import os
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__)))
@@ -25,9 +25,10 @@ except ImportError:
     from trading_bot.utils.logger_config import setup_logger
     from trading_bot.config import settings
     from trading_bot.exchange.binance_client import BinanceFuturesClient
-    from trading_bot.core.strategy import Strategy
     from trading_bot.core.trading_engine import TradingEngine
     from trading_bot.utils.notifier import send_telegram_message
+    from trading_bot.core.strategy_factory import StrategyFactory
+
 
 # --- Main Application Logic ---
 def main():
@@ -63,7 +64,14 @@ def main():
             "atr_sl_multiplier": settings.ATR_SL_MULTIPLIER,
             "atr_tp_multiplier": settings.ATR_TP_MULTIPLIER,
         }
-        strategy = Strategy(client=client, strategy_params=strategy_params)
+
+        strategy_name = settings.STRATEGY_NAME  # Add to settings.py
+        strategy = StrategyFactory.create_strategy(
+            strategy_name=strategy_name,
+            client=client,
+            strategy_params=strategy_params
+        )
+        
         logger.info("Trading Strategy initialized successfully.")
 
         # 3. Initialize and run the Trading Engine

@@ -85,6 +85,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+STRATEGY_NAME = os.getenv("STRATEGY_NAME", "mean_reversion")
+
 # --- Startup Configuration Printout ---
 # This part can be removed or commented out later, but it's useful for debugging.
 print("--- Trading Bot Configuration Loaded ---")

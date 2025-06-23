@@ -13,7 +13,7 @@ if project_root not in sys.path:
 
 # --- Imports from our project ---
 from trading_bot.config import settings
-from trading_bot.core.strategy import Strategy 
+from x_bot.trading_bot.core.mean_reversion_strategy import Strategy 
 from trading_bot.utils.logger_config import setup_logger
 
 # --- Backtester Configuration ---

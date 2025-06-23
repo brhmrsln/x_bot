@@ -1,11 +1,11 @@
-# trading_bot/core/strategy.py
+# trading_bot/core/mean_reversion_strategy.py
 import logging
 import pandas as pd
 import pandas_ta as ta
 
 logger = logging.getLogger("trading_bot")
 
-class Strategy:
+class MeanReversionStrategy:
     def __init__(self, client, strategy_params=None):
         """
         Initializes the High-Probability Mean Reversion Strategy.
@@ -73,7 +73,7 @@ class Strategy:
 
         if pd.isna(df_htf[mta_ema_long_col].iloc[-1]):
             logger.warning(f"[{symbol} | {self.mta_kline_interval}] Not enough data for trend EMAs.")
-            return {"signal": "HOLD"}
+            return ("HOLD", None, None)
         
         last_price_htf = df_htf['close'].iloc[-1]
         last_mta_short_ema = df_htf[mta_ema_short_col].iloc[-1]
@@ -84,11 +84,11 @@ class Strategy:
         elif last_price_htf < last_mta_short_ema < last_mta_long_ema: main_trend = "DOWN"
         
         logger.debug(f"[{symbol} | {self.mta_kline_interval}] Main Trend: {main_trend}")
-        if main_trend == "SIDEWAYS": return {"signal": "HOLD"}
+        if main_trend == "SIDEWAYS": return ("HOLD", None, None)
 
         # 2. Entry Trigger & Filters (LTF - e.g., 5m)
         df_ltf = self._get_and_prepare_data(symbol, self.kline_interval, self.kline_limit)
-        if df_ltf is None: return {"signal": "HOLD"}
+        if df_ltf is None: return ("HOLD", None, None)
 
         # Calculate all indicators on the LTF dataframe
         df_ltf.ta.stochrsi(length=self.stoch_rsi_period, rsi_length=self.stoch_rsi_period, k=self.stoch_rsi_k, d=self.stoch_rsi_d, append=True)
@@ -103,9 +103,13 @@ class Strategy:
         atr_col = f'ATRr_{self.atr_period}'
         required_cols = [stoch_k_col, stoch_d_col, bbl_col, bbu_col, atr_col]
 
-        if df_ltf.iloc[-2:][required_cols].isnull().values.any():
-            logger.warning(f"NaN values in recent indicator data for {symbol}. Cannot generate signal.")
-            return {"signal": "HOLD"}
+        if len(df_htf) < 50 or len(df_ltf) < 50:  # 50 bar minimum
+            logger.debug(f"Insufficient data for {symbol}. Skipping.")
+            return ("HOLD", None, None)
+        
+        if df_ltf[required_cols].isnull().values.any():
+            logger.warning(f"NaN values detected in {symbol} data. Skipping.")
+            return ("HOLD", None, None)
             
         last = df_ltf.iloc[-1]
         prev = df_ltf.iloc[-2]
@@ -121,7 +125,7 @@ class Strategy:
                     last_atr = last[atr_col]
                     sl_price = last['low'] - (last_atr * self.atr_sl_multiplier)
                     tp_price = last['close'] + (last_atr * self.atr_tp_multiplier)
-                    return {"signal": "BUY", "sl_price": sl_price, "tp_price": tp_price}
+                    return ("BUY", sl_price, tp_price)
         
         # SELL Signal Logic ("Sell the Rip")
         if main_trend == "DOWN":
@@ -134,7 +138,7 @@ class Strategy:
                     last_atr = last[atr_col]
                     sl_price = last['high'] + (last_atr * self.atr_sl_multiplier)
                     tp_price = last['close'] - (last_atr * self.atr_tp_multiplier)
-                    return {"signal": "SELL", "sl_price": sl_price, "tp_price": tp_price}
+                    return ("SELL", sl_price, tp_price)
                     
         logger.debug(f"[{symbol}] No actionable signal found.")
-        return {"signal": "HOLD"}
+        return ("HOLD", None, None)

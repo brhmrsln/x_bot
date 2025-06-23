@@ -4,14 +4,17 @@ import logging
 import time
 import json
 import os
+import sys
 
 try:
     from trading_bot.config import settings
     from trading_bot.exchange.binance_client import BinanceFuturesClient
-    from trading_bot.core.strategy import Strategy
     from trading_bot.core.market_scanner import get_top_volume_usdt_futures_symbols
     from trading_bot.utils.trade_logger import log_trade
     from trading_bot.utils.notifier import send_telegram_message
+    from trading_bot.core.base_strategy import BaseStrategy
+    from trading_bot.core.strategy_factory import StrategyFactory
+
 except ImportError as e:
     print(f"CRITICAL: Failed to import necessary modules in TradingEngine: {e}")
     # This path adjustment is a fallback for direct execution.
@@ -22,21 +25,22 @@ except ImportError as e:
     # Retry imports after path adjustment
     from trading_bot.config import settings
     from trading_bot.exchange.binance_client import BinanceFuturesClient
-    from trading_bot.core.strategy import Strategy
     from trading_bot.core.market_scanner import get_top_volume_usdt_futures_symbols
     from trading_bot.utils.trade_logger import log_trade
     from trading_bot.utils.notifier import send_telegram_message
+    from trading_bot.core.base_strategy import BaseStrategy
+    from trading_bot.core.strategy_factory import StrategyFactory
 
 
 logger = logging.getLogger("trading_bot")
 
 class TradingEngine:
-    def __init__(self, client: BinanceFuturesClient, strategy: Strategy):
+    def __init__(self, client: BinanceFuturesClient, strategy: BaseStrategy):
         """
         Initializes the TradingEngine and loads state from a file on startup.
         """
         self.client = client
-        self.strategy = strategy
+        self.strategy = strategy 
         self.running = False
         
         # --- Load configurable parameters from settings ---
@@ -285,40 +289,60 @@ class TradingEngine:
             time.sleep(2)
 
     def _process_symbol_for_entry(self, symbol):
-        """Processes a single symbol for a potential new trade entry."""
         if symbol in self.open_positions:
             logger.debug(f"Already managing an internal position for {symbol}. Skipping.")
             return False
 
         try:
+            # Check if there's an existing position on the exchange
             exchange_positions = self.client.get_position_info(symbol)
             if exchange_positions:
                 logger.warning(f"Found an existing position for {symbol} on the exchange. Skipping to avoid duplicates.")
-                return True
+                return False
         except Exception as e:
             logger.error(f"Could not verify existing position for {symbol}: {e}. Skipping.", exc_info=True)
             return False
 
-        signal_data = self.strategy.generate_signal(symbol)
-        signal = signal_data.get("signal") if signal_data else "HOLD"
-
-        if signal == "BUY" or signal == "SELL":
+        # Get trading signal - returns tuple (signal, stop_loss, take_profit)
+        try:
+            signal_result = self.strategy.generate_signal(symbol)
+        except Exception as e:
+            logger.error(f"Error generating signal for {symbol}: {e}", exc_info=True)
+            return False
+        
+        # Handle tuple format
+        if isinstance(signal_result, tuple) and len(signal_result) == 3:
+            signal, sl_price, tp_price = signal_result
+        else:
+            logger.error(f"Invalid signal format for {symbol}: {type(signal_result)}")
+            return False
+        
+        # Validate signal
+        if signal in ["BUY", "SELL"] and sl_price is not None and tp_price is not None:
             logger.info(f"Actionable signal '{signal}' received for {symbol}. Preparing to execute trade...")
-            return self._execute_trade(symbol, signal_data)
+            return self._execute_trade(symbol, (signal, sl_price, tp_price))
+        
         return False
 
-    def _execute_trade(self, symbol, signal_data):
-        """
-        Sets leverage, calculates SL/TP from signal, places orders, updates state,
-        and sends a detailed Telegram notification.
-        """
-        side = signal_data.get("signal")
-        sl_price = signal_data.get("sl_price")
-        tp_price = signal_data.get("tp_price")
+    def _execute_trade(self, symbol, signal_result):
 
-        if not all([side, sl_price, tp_price]):
-            logger.error(f"Signal for {symbol} is missing critical data (side, sl_price, or tp_price). Aborting trade.")
+        if isinstance(signal_result, tuple):
+            signal, sl_price, tp_price = signal_result
+            extra_data = {}
+        elif hasattr(signal_result, 'signal'):
+            signal = signal_result.signal
+            sl_price = signal_result.stop_loss
+            tp_price = signal_result.take_profit
+            extra_data = signal_result.extra_data
+        else:
+            logger.error(f"Invalid signal format: {type(signal_result)}")
             return False
+
+        if signal not in ["BUY", "SELL"] or not all([sl_price, tp_price]):
+            return False
+        
+        if extra_data:
+            logger.debug(f"Extra signal data: {extra_data}")
             
         try:
             logger.info(f"Setting leverage for {symbol} to {self.leverage}x before placing trade.")
