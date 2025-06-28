@@ -1,4 +1,4 @@
-# scripts/data_downloader.py (Full Code)
+# scripts/data_downloader.py 
 import os, sys, pandas as pd, time, argparse, logging
 from datetime import datetime, timedelta, timezone
 from binance.um_futures import UMFutures

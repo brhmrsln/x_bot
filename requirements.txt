@@ -23,3 +23,5 @@ backoff>=2.2   # Very useful for retrying API calls in case of temporary network
 requests       # Telegram
 
 
+tqdm
+

@@ -54,4 +54,7 @@ The script will create a `.csv` file inside the `data/` directory with a descrip
 *(This script will be used to test various strategies on the downloaded historical data and measure their performance.)*
 
 
-python x_bot/scripts/backtester.py     --klines-datafile x_bot/data/BTCUSDT_1h_klines_2025-06-21.csv     --oi-datafile x_bot/data/BTCUSDT_1h_oi_2023-01-01.csv     --fr-datafile x_bot/data/BTCUSDT_fr_2025-06-21.csv     --capital 10000
+python scripts/backtester_ema_crossover.py --datafile data/SOLUSDT_15m_klines_2024-05-01.csv --capital 1000 --positionsize 200 --leverage 10
+
+python scripts/backtester.py --strategy simple_ema_crossover --datafile-ltf data/SOLUSDT_15m_klines_2024-05-01.csv --capital 1000 --positionsize 1000 --leverage 10
+python scripts/data_downloader.py --type klines --symbol SOLUSDT --interval 15m --start-date 2024-05-01

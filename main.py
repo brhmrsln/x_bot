@@ -1,14 +1,10 @@
-# main.py - The main entry point for the trading bot application.
+# main.py - Geliştirilmiş ve tüm stratejilerle uyumlu ana giriş noktası
 
 import logging
 import time
 import sys
+import os
 
-# --- Imports from our project structure ---
-# Using a try-except block for imports is a good practice if the script could
-# be run from different locations, but with a clear entry point, it's often cleaner
-# to ensure the environment (PYTHONPATH) is set up correctly.
-# If you run `python main.py` from the project root, these imports should work.
 try:
     from trading_bot.utils.logger_config import setup_logger
     from trading_bot.config import settings
@@ -17,11 +13,9 @@ try:
     from trading_bot.utils.notifier import send_telegram_message
     from trading_bot.core.strategy_factory import StrategyFactory
 except ImportError:
-    import os
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
-        print(f"DEBUG: Added project root to sys.path: {project_root}")
     from trading_bot.utils.logger_config import setup_logger
     from trading_bot.config import settings
     from trading_bot.exchange.binance_client import BinanceFuturesClient
@@ -29,52 +23,47 @@ except ImportError:
     from trading_bot.utils.notifier import send_telegram_message
     from trading_bot.core.strategy_factory import StrategyFactory
 
-
-# --- Main Application Logic ---
 def main():
     """The main function to initialize and run the trading bot."""
     logger = setup_logger(name="trading_bot")
     logger.info("=====================================================")
     logger.info("              STARTING ALGO TRADING BOT              ")
+    logger.info(f"       Strategy: {settings.STRATEGY_NAME.upper()}   ")
     logger.info("=====================================================")
 
-    send_telegram_message("✅ **X_bot STARTED** ✅")
+    send_telegram_message(f"✅ **X_bot STARTED** ✅\nStrategy: `{settings.STRATEGY_NAME}`")
     
     try:
-        # 1. Initialize the Binance Futures Client
         client = BinanceFuturesClient()
         logger.info("Binance Futures Client initialized successfully.")
 
-        # 2. Initialize the Trading Strategy
-        # Strategy parameters are now loaded from the central settings module
-        strategy_params = {
-            "kline_interval": settings.STRATEGY_KLINE_INTERVAL,
-            "kline_limit": settings.STRATEGY_KLINE_LIMIT,
-            "mta_kline_interval": settings.MTA_KLINE_INTERVAL,
-            "mta_short_ema_period": settings.MTA_SHORT_EMA_PERIOD,
-            "mta_long_ema_period": settings.MTA_LONG_EMA_PERIOD,
-            "stoch_rsi_period": settings.STOCH_RSI_PERIOD,
-            "stoch_rsi_k": settings.STOCH_RSI_K,
-            "stoch_rsi_d": settings.STOCH_RSI_D,
-            "stoch_rsi_oversold": settings.STOCH_RSI_OVERSOLD,
-            "stoch_rsi_overbought": settings.STOCH_RSI_OVERBOUGHT,
-            "bollinger_period": settings.STRATEGY_BOLLINGER_PERIOD,
-            "bollinger_std_dev": settings.STRATEGY_BOLLINGER_STD_DEV,
-            "atr_period": settings.ATR_PERIOD,
-            "atr_sl_multiplier": settings.ATR_SL_MULTIPLIER,
-            "atr_tp_multiplier": settings.ATR_TP_MULTIPLIER,
-        }
+        # 1. Get the strategy CLASS from the factory
+        strategy_name = settings.STRATEGY_NAME
+        logger.info(f"Loading strategy '{strategy_name}'...")
+        strategy_class = StrategyFactory(strategy_name)
 
-        strategy_name = settings.STRATEGY_NAME  # Add to settings.py
-        strategy = StrategyFactory.create_strategy(
-            strategy_name=strategy_name,
-            client=client,
-            strategy_params=strategy_params
-        )
+        # 2. Get required parameters from the class itself (static method)
+        required_params_map = strategy_class.get_required_parameters()
         
-        logger.info("Trading Strategy initialized successfully.")
+        # 3. Dynamically build the parameters dictionary from settings
+        strategy_params = {}
+        for key, setting_name in required_params_map.items():
+            if hasattr(settings, setting_name):
+                strategy_params[key] = getattr(settings, setting_name)
+            else:
+                logger.error(f"Setting '{setting_name}' not found in settings.py!")
+                raise ValueError(f"Missing required setting in settings.py: {setting_name}")
+        
+        # --- NEWLY ADDED SECTION: Log the loaded strategy parameters ---
+        logger.info(f"Strategy Parameters Loaded: {strategy_params}")
+        # -----------------------------------------------------------
+        
+        # 4. Create the final strategy INSTANCE with the parameters
+        strategy = strategy_class(strategy_params)
+        
+        logger.info(f"Strategy '{strategy_name}' initialized successfully.")
 
-        # 3. Initialize and run the Trading Engine
+        # 5. Initialize and run the Trading Engine
         engine = TradingEngine(client=client, strategy=strategy)
         logger.info("Trading Engine initialized successfully.")
         
@@ -83,25 +72,24 @@ def main():
         logger.info("Trading Engine has been stopped. Main application exiting.")
 
     except Exception as e:
-        # Catch exceptions during initialization phase
-        if 'logger' in locals():
-            logger.critical(f"A critical error occurred during bot initialization: {e}", exc_info=True)
-            logger.critical("Bot will exit.")
-        else:
-            print(f"CRITICAL: A critical error occurred during bot initialization: {e}")
-        return # Exit if initialization fails
-
+        logger.critical(f"A critical error occurred during bot initialization: {e}", exc_info=True)
+        logger.critical("Bot will exit.")
+        send_telegram_message(f"❌ **CRITICAL ERROR** ❌\nBot failed to start!\n`{e}`")
+        return
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        # The engine's own loop handles the shutdown message, so we can just print a final exit message.
-        print("\nINFO: KeyboardInterrupt received. Bot shutting down.")
+        print("\nINFO: KeyboardInterrupt received. Shutting down gracefully.")
     finally:
-        send_telegram_message("🛑 **X_bot SHUTDOWN**")
-        if logging.getLogger("trading_bot").hasHandlers():
-            logging.getLogger("trading_bot").info("Bot shutdown complete.")
+        shutdown_message = "🛑 **X_bot SHUTDOWN** 🛑"
+        send_telegram_message(shutdown_message)
+        
+        logger = logging.getLogger("trading_bot")
+        if logger.hasHandlers():
+            logger.info("Bot shutdown complete.")
         else:
             print("INFO: Bot shutdown complete.")
+        
         logging.shutdown()

@@ -64,6 +64,31 @@ ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
 ATR_SL_MULTIPLIER = float(os.getenv("ATR_SL_MULTIPLIER", 1.5))
 ATR_TP_MULTIPLIER = float(os.getenv("ATR_TP_MULTIPLIER", 2.5))
 
+# ==============================================================================
+# MOMENTUM SCALPING STRATEGY SETTINGS
+# ==============================================================================
+# Bu ayarlar, 'momentum_scalping' stratejisi tarafından kullanılır.
+# Değerler önce .env dosyasından okunur, orada yoksa varsayılanlar kullanılır.
+SCALPING_FAST_EMA_PERIOD = int(os.getenv("SCALPING_FAST_EMA_PERIOD", "9"))
+SCALPING_SLOW_EMA_PERIOD = int(os.getenv("SCALPING_SLOW_EMA_PERIOD", "21"))
+SCALPING_RSI_PERIOD = int(os.getenv("SCALPING_RSI_PERIOD", "14"))
+SCALPING_RSI_PULLBACK_LEVEL_LONG = int(os.getenv("SCALPING_RSI_PULLBACK_LEVEL_LONG", "50"))
+SCALPING_RSI_PULLBACK_LEVEL_SHORT = int(os.getenv("SCALPING_RSI_PULLBACK_LEVEL_SHORT", "50"))
+SCALPING_VOLUME_MA_PERIOD = int(os.getenv("SCALPING_VOLUME_MA_PERIOD", "20"))
+SCALPING_ATR_PERIOD = int(os.getenv("SCALPING_ATR_PERIOD", "14"))
+SCALPING_ATR_MULTIPLIER_SL = float(os.getenv("SCALPING_ATR_MULTIPLIER_SL", "1.0"))
+SCALPING_ATR_MULTIPLIER_TP = float(os.getenv("SCALPING_ATR_MULTIPLIER_TP", "1.5"))
+
+# ==============================================================================
+# SIMPLE EMA CROSSOVER STRATEGY SETTINGS
+# ==============================================================================
+CROSSOVER_FAST_EMA_PERIOD = int(os.getenv("CROSSOVER_FAST_EMA_PERIOD", 9))
+CROSSOVER_SLOW_EMA_PERIOD = int(os.getenv("CROSSOVER_SLOW_EMA_PERIOD", 21))
+CROSSOVER_ATR_PERIOD = int(os.getenv("CROSSOVER_ATR_PERIOD", 14))
+CROSSOVER_ATR_SL_MULTIPLIER = float(os.getenv("CROSSOVER_ATR_SL_MULTIPLIER", 1.5))
+CROSSOVER_ATR_TP_MULTIPLIER = float(os.getenv("CROSSOVER_ATR_TP_MULTIPLIER", 2.0))
+
+
 # --- Logging Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 

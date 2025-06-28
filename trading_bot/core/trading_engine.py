@@ -286,7 +286,7 @@ class TradingEngine:
             if trade_initiated:
                 logger.info(f"A new trade was initiated. Stopping scan for this loop.")
                 break
-            time.sleep(2)
+            time.sleep(10)
 
     def _process_symbol_for_entry(self, symbol):
         if symbol in self.open_positions:

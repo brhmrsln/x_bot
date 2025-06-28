@@ -1,18 +1,18 @@
 # trading_bot/core/strategy_factory.py
-import logging
-from .mean_reversion_strategy import MeanReversionStrategy
 
-logger = logging.getLogger("trading_bot")
+from trading_bot.core.mean_reversion_strategy import MeanReversionStrategy
+from trading_bot.core.momentum_scalping_strategy import MomentumScalpingStrategy
+from trading_bot.core.simple_ema_crossover_strategy import SimpleEmaCrossoverStrategy # BU SATIRI EKLE
 
-class StrategyFactory:
-    STRATEGIES = {
-        "mean_reversion": MeanReversionStrategy
-    }
-
-    @staticmethod
-    def create_strategy(strategy_name, client, strategy_params):
-        strategy_class = StrategyFactory.STRATEGIES.get(strategy_name)
-        if not strategy_class:
-            logger.error(f"Unknown strategy: {strategy_name}")
-            raise ValueError(f"Invalid strategy name: {strategy_name}")
-        return strategy_class(client, strategy_params)
+def StrategyFactory(strategy_name: str):
+    """
+    Verilen strateji ismine göre ilgili strateji SINIFINI döndürür.
+    """
+    if strategy_name == "mean_reversion":
+        return MeanReversionStrategy
+    elif strategy_name == "momentum_scalping":
+        return MomentumScalpingStrategy
+    elif strategy_name == "simple_ema_crossover": # BU İKİ SATIRI EKLE
+        return SimpleEmaCrossoverStrategy
+    else:
+        raise ValueError(f"Bilinmeyen strateji: '{strategy_name}'. Lütfen .env dosyasını kontrol edin.")
