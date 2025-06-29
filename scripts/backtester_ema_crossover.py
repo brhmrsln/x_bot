@@ -76,13 +76,17 @@ def run_backtest(args, logger):
                 elif current_candle['low'] <= position['tp']: trade_closed, exit_price, exit_reason = True, position['tp'], "TAKE_PROFIT"
             
             if trade_closed:
+                # Calculate PnL
                 pnl = ((exit_price - position['entry_price']) * position['amount']) if position['side'] == 'LONG' else ((position['entry_price'] - exit_price) * position['amount'])
-                capital -= (args.positionsize * args.fee) # Subtract closing fee
+                # Subtract closing fee
+                capital -= (args.positionsize * args.fee)
                 capital += pnl
                 
+                # Update equity curve for drawdown calculation
                 peak_equity = max(peak_equity, capital)
                 max_drawdown = max(max_drawdown, peak_equity - capital)
                 
+                # Log detailed trade information
                 trade_duration = current_candle['open_time_dt'] - position['entry_time']
                 
                 trade_log = {
@@ -104,24 +108,29 @@ def run_backtest(args, logger):
                 trade_log.update(position['entry_indicators'])
                 trades.append(trade_log)
                 
+                # Close the position
                 position = None
 
         # Check for new signal if no position is open
         if not position:
+            # Feed historical data to the strategy to generate a signal
             historical_data = df.iloc[i - indicator_warmup_period : i].copy()
             signal, sl, tp = strategy.generate_signal(historical_data)
 
             if signal in ['BUY', 'SELL']:
                 capital_before_trade = capital
                 
+                # Assume entry on the open of the next candle
                 entry_price = df.iloc[i]['open']
                 
+                # Capture indicator values at the moment of entry
                 entry_indicators = {}
                 last_indicator_candle = historical_data.iloc[-1]
                 for col in last_indicator_candle.index:
                     if col.upper().startswith(('EMA', 'ATR')):
                         entry_indicators[col] = last_indicator_candle[col]
                 
+                # Open the position
                 position = {
                     'capital_before_trade': capital_before_trade,
                     'entry_time': df.iloc[i]['open_time_dt'],
@@ -132,7 +141,8 @@ def run_backtest(args, logger):
                     'tp': tp,
                     'entry_indicators': entry_indicators
                 }
-                capital -= (args.positionsize * args.fee) # Subtract opening fee
+                # Subtract opening fee
+                capital -= (args.positionsize * args.fee)
 
     return trades, capital, peak_equity, max_drawdown
 
@@ -142,11 +152,13 @@ def save_detailed_trade_log(trades, args):
     
     log_df = pd.DataFrame(trades)
     
+    # Reorder columns for better readability
     desired_order = [
         'capital_before_trade', 'capital_after_trade', 'pnl_usd', 'entry_time', 'exit_time', 'duration', 
         'side', 'entry_price', 'exit_price', 'stop_loss', 'take_profit', 'exit_reason',
         'position_size_usd', 'leverage'
     ]
+    # Add indicator columns to the end
     indicator_cols = [col for col in log_df.columns if col not in desired_order]
     final_order = desired_order + indicator_cols
     log_df = log_df[final_order]
@@ -219,7 +231,9 @@ def analyze_and_report(trades, initial_capital, final_capital, peak_equity, max_
     except Exception as e:
         print(f"\nError saving backtest report: {e}")
 
+    # Save the detailed trade log to a separate CSV file
     save_detailed_trade_log(trades, args)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="A dedicated backtester for the Simple EMA Crossover strategy.")

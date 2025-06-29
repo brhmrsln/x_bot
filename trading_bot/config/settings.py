@@ -40,44 +40,13 @@ POSITION_SIZE_USDT = float(os.getenv("POSITION_SIZE_USDT", 500.0)) # Default set
 LEVERAGE = int(os.getenv("TRADING_LEVERAGE", 10))
 
 ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
-ATR_SL_MULTIPLIER = float(os.getenv("ATR_SL_MULTIPLIER", 1.5))
-ATR_TP_MULTIPLIER = float(os.getenv("ATR_TP_MULTIPLIER", 3.0))
 
 # --- Strategy Parameters (Loaded from .env) ---
 STRATEGY_KLINE_INTERVAL = os.getenv("STRATEGY_KLINE_INTERVAL", "15m")
 STRATEGY_KLINE_LIMIT = int(os.getenv("STRATEGY_KLINE_LIMIT", 200))
-# Multi-Timeframe Analysis (MTA)
-MTA_KLINE_INTERVAL = os.getenv("MTA_KLINE_INTERVAL", "1h")
-MTA_SHORT_EMA_PERIOD = int(os.getenv("MTA_SHORT_EMA_PERIOD", 20))
-MTA_LONG_EMA_PERIOD = int(os.getenv("MTA_LONG_EMA_PERIOD", 50))
-# Stochastic RSI
-STOCH_RSI_PERIOD = int(os.getenv("STOCH_RSI_PERIOD", 14))
-STOCH_RSI_K = int(os.getenv("STOCH_RSI_K", 3))
-STOCH_RSI_D = int(os.getenv("STOCH_RSI_D", 3))
-STOCH_RSI_OVERSOLD = int(os.getenv("STOCH_RSI_OVERSOLD", 25))
-STOCH_RSI_OVERBOUGHT = int(os.getenv("STOCH_RSI_OVERBOUGHT", 75))
-# Bollinger Bands
-STRATEGY_BOLLINGER_PERIOD = int(os.getenv("STRATEGY_BOLLINGER_PERIOD", 20))
-STRATEGY_BOLLINGER_STD_DEV = int(os.getenv("STRATEGY_BOLLINGER_STD_DEV", 2))
+
 # ATR Risk Management
 ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
-ATR_SL_MULTIPLIER = float(os.getenv("ATR_SL_MULTIPLIER", 1.5))
-ATR_TP_MULTIPLIER = float(os.getenv("ATR_TP_MULTIPLIER", 2.5))
-
-# ==============================================================================
-# MOMENTUM SCALPING STRATEGY SETTINGS
-# ==============================================================================
-# Bu ayarlar, 'momentum_scalping' stratejisi tarafından kullanılır.
-# Değerler önce .env dosyasından okunur, orada yoksa varsayılanlar kullanılır.
-SCALPING_FAST_EMA_PERIOD = int(os.getenv("SCALPING_FAST_EMA_PERIOD", "9"))
-SCALPING_SLOW_EMA_PERIOD = int(os.getenv("SCALPING_SLOW_EMA_PERIOD", "21"))
-SCALPING_RSI_PERIOD = int(os.getenv("SCALPING_RSI_PERIOD", "14"))
-SCALPING_RSI_PULLBACK_LEVEL_LONG = int(os.getenv("SCALPING_RSI_PULLBACK_LEVEL_LONG", "50"))
-SCALPING_RSI_PULLBACK_LEVEL_SHORT = int(os.getenv("SCALPING_RSI_PULLBACK_LEVEL_SHORT", "50"))
-SCALPING_VOLUME_MA_PERIOD = int(os.getenv("SCALPING_VOLUME_MA_PERIOD", "20"))
-SCALPING_ATR_PERIOD = int(os.getenv("SCALPING_ATR_PERIOD", "14"))
-SCALPING_ATR_MULTIPLIER_SL = float(os.getenv("SCALPING_ATR_MULTIPLIER_SL", "1.0"))
-SCALPING_ATR_MULTIPLIER_TP = float(os.getenv("SCALPING_ATR_MULTIPLIER_TP", "1.5"))
 
 # ==============================================================================
 # SIMPLE EMA CROSSOVER STRATEGY SETTINGS
@@ -111,7 +80,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-STRATEGY_NAME = os.getenv("STRATEGY_NAME", "mean_reversion")
+STRATEGY_NAME = os.getenv("STRATEGY_NAME", "simple_ema_crossover")
 
 # --- Startup Configuration Printout ---
 # This part can be removed or commented out later, but it's useful for debugging.
