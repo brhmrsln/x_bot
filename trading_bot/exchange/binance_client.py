@@ -2,6 +2,7 @@
 import logging
 from binance.um_futures import UMFutures  # For USDT-M Futures (USDⓈ-M Futures)
 import time # For sleep
+import pandas as pd
 
 # Attempt to import settings and logger setup function from the project structure
 try:
@@ -104,17 +105,16 @@ class BinanceFuturesClient:
 
             if not step_size_str or not min_qty_str:
                 logger.warning(f"Step size or Min Qty not found for {symbol}, using raw quantity {quantity} formatted to a reasonable default precision.")
-                return float(f"{float(quantity):.8f}") # Genel bir formatlama
+                return float(f"{float(quantity):.8f}")
 
             step_size = float(step_size_str)
             min_qty = float(min_qty_str)
             
             # Calculate precision from step_size (e.g., "0.001" -> 3)
             if '.' in step_size_str:
-                # Virgülden sonraki sıfır olmayan son basamağa kadar olan kısım hassasiyeti verir
                 precision = len(step_size_str.split('.')[1].rstrip('0'))
             else: 
-                precision = 0 # Tam sayı ise hassasiyet 0
+                precision = 0 
 
             # Miktarı step_size'ın en yakın katına (aşağıya) yuvarla ve string olarak formatla
             # Örnek: quantity=0.00954, step_size=0.001 -> floor(0.00954/0.001)*0.001 = floor(9.54)*0.001 = 9*0.001 = 0.009
@@ -573,50 +573,47 @@ class BinanceFuturesClient:
             logger.error(f"Error querying order for {symbol.upper()} (ID: {order_id or orig_client_order_id}): {e}", exc_info=True)
             return None
         
-    def get_historical_klines(self, symbol, interval, limit=100, start_time=None, end_time=None):
+    def get_historical_klines(self, symbol, interval, limit=500, start_time=None, end_time=None):
         """
-        Fetches historical klines (candlestick data) for a symbol.
-
-        :param symbol: Trading symbol (e.g., "BTCUSDT")
-        :param interval: Kline interval (e.g., "1m", "5m", "15m", "1h", "4h", "1d")
-        :param limit: Number of klines to retrieve (default 100, max usually 1000 or 1500 by Binance).
-        :param start_time: Optional. Timestamp in ms to get klines from (inclusive).
-        :param end_time: Optional. Timestamp in ms to get klines until (inclusive).
-        :return: List of kline data, or None if an error occurs.
-                 Each kline is a list: [
-                     open_time, open_price, high_price, low_price, close_price,
-                     volume, close_time, quote_asset_volume, number_of_trades,
-                     taker_buy_base_asset_volume, taker_buy_quote_asset_volume, ignore
-                 ]
-                 All price/volume related fields are strings.
+        Fetches historical klines and returns them as a structured pandas DataFrame.
         """
-        logger.debug(f"Fetching historical klines for {symbol.upper()} with interval {interval}, limit {limit}...")
-        params = {
-            'symbol': symbol.upper(),
-            'interval': interval,
-            'limit': limit
-        }
-        if start_time is not None: # Ensure None is not passed if not provided
-            params['startTime'] = start_time
-        if end_time is not None: # Ensure None is not passed if not provided
-            params['endTime'] = end_time
-        
-        # Log parameters without None values for clarity if they were not provided
-        active_params_log = {k: v for k, v in params.items() if v is not None}
-        logger.debug(f"Parameters for klines API: {active_params_log}")
-        
+        logger.debug(f"Fetching historical klines for {symbol} with interval {interval}, limit {limit}...")
         try:
-            # The UMFutures klines method directly returns the list of klines
+            params = {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}
+            if start_time:
+                params['startTime'] = start_time
+            if end_time:
+                params['endTime'] = end_time
+
+            # Get raw kline data from the API (returns a list of lists)
             klines_data = self.client.klines(**params)
-            if klines_data:
-                logger.info(f"Successfully fetched {len(klines_data)} klines for {symbol.upper()} (interval: {interval}, limit: {limit}).")
-                # logger.debug(f"Sample kline data (first kline): {klines_data[0]}")
-            else:
-                logger.info(f"No kline data returned for {symbol.upper()} (interval: {interval}, limit: {limit}) with params: {active_params_log}.")
-            return klines_data
+            
+            logger.info(f"Successfully fetched {len(klines_data)} klines for {symbol} (interval: {interval}).")
+            
+            if not klines_data:
+                return pd.DataFrame() # Return an empty DataFrame if no data
+
+            # Convert the raw list data into a structured pandas DataFrame
+            df = pd.DataFrame(klines_data, columns=[
+                'open_time', 'open', 'high', 'low', 'close', 'volume', 
+                'close_time', 'quote_asset_volume', 'number_of_trades', 
+                'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+            ])
+            
+            # Convert key columns to numeric types for calculations
+            numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'quote_asset_volume', 'number_of_trades']
+            for col in numeric_cols:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Convert timestamps to datetime objects for easier use
+            df['open_time_dt'] = pd.to_datetime(df['open_time'], unit='ms')
+            df['close_time_dt'] = pd.to_datetime(df['close_time'], unit='ms')
+            
+            return df
+
         except Exception as e:
-            logger.error(f"Error fetching klines for {symbol.upper()} interval {interval}: {e}", exc_info=True)
-            return None
+            logger.error(f"Error fetching klines for {symbol}: {e}", exc_info=True)
+            return pd.DataFrame() # Return an empty DataFrame on error
         
     def get_all_tickers_24hr(self):
         """

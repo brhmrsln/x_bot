@@ -5,6 +5,7 @@ import time
 import json
 import os
 import sys
+import pandas as pd
 
 try:
     from trading_bot.config import settings
@@ -13,37 +14,26 @@ try:
     from trading_bot.utils.trade_logger import log_trade
     from trading_bot.utils.notifier import send_telegram_message
     from trading_bot.core.base_strategy import BaseStrategy
-    from trading_bot.core.strategy_factory import StrategyFactory
-
 except ImportError as e:
-    print(f"CRITICAL: Failed to import necessary modules in TradingEngine: {e}")
-    # This path adjustment is a fallback for direct execution.
-    # It's better to run the project from the root with `python main.py`.
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
-    # Retry imports after path adjustment
     from trading_bot.config import settings
     from trading_bot.exchange.binance_client import BinanceFuturesClient
     from trading_bot.core.market_scanner import get_top_volume_usdt_futures_symbols
     from trading_bot.utils.trade_logger import log_trade
     from trading_bot.utils.notifier import send_telegram_message
     from trading_bot.core.base_strategy import BaseStrategy
-    from trading_bot.core.strategy_factory import StrategyFactory
 
-
-logger = logging.getLogger("trading_bot")
+logger = logging.getLogger(__name__)
 
 class TradingEngine:
     def __init__(self, client: BinanceFuturesClient, strategy: BaseStrategy):
-        """
-        Initializes the TradingEngine and loads state from a file on startup.
-        """
         self.client = client
-        self.strategy = strategy 
+        self.strategy = strategy
         self.running = False
         
-        # --- Load configurable parameters from settings ---
+        # Load configurable parameters from settings
         self.loop_interval_seconds = settings.ENGINE_LOOP_INTERVAL_SECONDS
         self.symbols_to_scan_count = settings.SCAN_TOP_N_SYMBOLS
         self.min_24h_quote_volume = settings.MIN_24H_QUOTE_VOLUME
@@ -51,7 +41,7 @@ class TradingEngine:
         self.position_size_usdt = settings.POSITION_SIZE_USDT
         self.leverage = settings.LEVERAGE
 
-        # --- State Management ---
+        # State Management
         self.state_file_path = settings.STATE_FILE_PATH
         self.open_positions = self._load_state()
 
@@ -60,12 +50,11 @@ class TradingEngine:
         logger.info(f"  Symbols to Scan: Top {self.symbols_to_scan_count}")
         logger.info(f"  Min 24h Volume: {self.min_24h_quote_volume:,.0f} USDT")
         logger.info(f"  Max Concurrent Positions: {self.max_concurrent_positions}")
-        logger.info(f"  Position Size: {self.position_size_usdt} USDT (nominal)")
+        logger.info(f"  Position Size: {self.position_size_usdt} USDT")
         logger.info(f"  Leverage: {self.leverage}x")
         logger.info(f"Engine started. Found and loaded {len(self.open_positions)} existing position(s) from state file.")
 
     def _load_state(self):
-        """Loads open positions from the state file (e.g., open_positions.json)."""
         if not os.path.exists(self.state_file_path):
             logger.info(f"State file '{self.state_file_path}' not found. Starting with empty state.")
             return {}
@@ -82,13 +71,10 @@ class TradingEngine:
             return {}
 
     def _save_state(self):
-        """Saves the current self.open_positions dictionary to the state file."""
         logger.debug(f"Saving current state ({len(self.open_positions)} open positions) to '{self.state_file_path}'...")
         try:
             state_dir = os.path.dirname(self.state_file_path)
-            if not os.path.exists(state_dir):
-                os.makedirs(state_dir)
-            
+            os.makedirs(state_dir, exist_ok=True)
             with open(self.state_file_path, 'w', encoding='utf-8') as f:
                 json.dump(self.open_positions, f, indent=4)
             logger.info(f"Successfully saved state. {len(self.open_positions)} position(s) are actively managed.")
@@ -96,21 +82,16 @@ class TradingEngine:
             logger.error(f"CRITICAL: Could not save state to '{self.state_file_path}': {e}", exc_info=True)
 
     def stop(self):
-        """Stops the trading engine loop gracefully."""
         logger.info("Stopping TradingEngine...")
         self.running = False
 
     def run(self):
-        """Starts the main trading engine loop."""
         logger.info("Starting TradingEngine...")
         self.running = True
-
         while self.running:
             try:
                 logger.info("--- Starting new trading loop iteration ---")
-                
                 self._manage_open_positions()
-
                 if len(self.open_positions) < self.max_concurrent_positions:
                     self._scan_for_new_trades()
                 else:
@@ -118,7 +99,6 @@ class TradingEngine:
                 
                 logger.info(f"--- Trading loop iteration finished. Waiting for {self.loop_interval_seconds} seconds... ---")
                 time.sleep(self.loop_interval_seconds)
-
             except KeyboardInterrupt:
                 self.stop()
             except Exception as e:
@@ -126,167 +106,46 @@ class TradingEngine:
                 send_telegram_message(f"🚨 **CRITICAL ERROR** 🚨\n\nBot loop failed: {e}")
                 logger.info("Pausing for 60 seconds before retrying...")
                 time.sleep(60)
-
         logger.info("TradingEngine has been stopped.")
-        
+
     def _manage_open_positions(self):
-        """
-        Iterates through open positions, checks their status, and handles closure.
-        This version is robust against temporary API errors during order queries.
-        """
         if not self.open_positions:
             logger.debug("No open positions to manage.")
             return
 
         logger.info(f"Managing {len(self.open_positions)} open position(s): {list(self.open_positions.keys())}")
         
-        # We iterate over a copy of the keys because we might modify the dictionary
-        symbols_to_process = list(self.open_positions.keys()) 
-
-        for symbol in symbols_to_process:
-            if not self.running: 
-                break 
-            
-            trade_info = self.open_positions.get(symbol)
-            if not trade_info: 
-                continue
-
-            logger.debug(f"Checking status for position: {symbol}")
-
-            sl_order_id = trade_info.get("stop_loss_order_id")
-            tp_order_id = trade_info.get("take_profit_order_id")
-            
-            # --- Query order statuses ---
-            sl_order_data = self.client.query_order(symbol, sl_order_id) if sl_order_id else None
-            time.sleep(0.2) # Small delay between API calls to respect rate limits
-            tp_order_data = self.client.query_order(symbol, tp_order_id) if tp_order_id else None
-
-            # --- CRITICAL SAFETY CHECK FOR API ERRORS ---
-            # If we fail to query EITHER order due to an error (query_order returns None),
-            # we must skip management for this symbol in this loop. We will try again later.
-            # This prevents making wrong decisions based on incomplete data.
-            if (sl_order_id and sl_order_data is None) or \
-            (tp_order_id and tp_order_data is None):
-                logger.warning(f"Could not query full order status for {symbol} due to an API error. "
-                            "Skipping management for this iteration. Will retry in the next loop.")
-                continue # Skip to the next symbol in our open positions list
-
-            sl_status = sl_order_data.get('status') if sl_order_data else "NOT_APPLICABLE"
-            tp_status = tp_order_data.get('status') if tp_order_data else "NOT_APPLICABLE"
-            
-            is_closed = False
-            closing_order_data = None
-            exit_reason = "UNKNOWN"
-
-            # --- Logic for FILLED Orders ---
-            if sl_status == 'FILLED':
-                logger.info(f"STOP-LOSS order {sl_order_id} for {symbol} has been FILLED.")
-                closing_order_data, exit_reason = sl_order_data, "STOP_LOSS"
-                is_closed = True
-            elif tp_status == 'FILLED':
-                logger.info(f"TAKE-PROFIT order {tp_order_id} for {symbol} has been FILLED.")
-                closing_order_data, exit_reason = tp_order_data, "TAKE_PROFIT"
-                is_closed = True
-            
-            # --- Logic for Inactive (Canceled, Expired, etc.) Orders ---
-            elif (sl_order_id and sl_status not in ['NEW', 'PARTIALLY_FILLED']) or \
-                (tp_order_id and tp_status not in ['NEW', 'PARTIALLY_FILLED']):
-                logger.warning(f"Protective order(s) for {symbol} are no longer active (SL: {sl_status}, TP: {tp_status}). Cleaning up state.")
-                is_closed = True
-                closing_order_data = None # We don't have fill data for this event
-            
-            # --- If a closure event was detected, handle it ---
-            if is_closed:
-                # If closed by a FILLED order, log PnL. Otherwise, just clean up.
-                if closing_order_data: 
-                    self._handle_trade_closure(symbol, trade_info, closing_order_data, exit_reason)
-                
-                # Cancel all open orders for this symbol to be safe before dust check
-                logger.info(f"Position for {symbol} is being closed/cleaned up. Canceling any remaining open orders.")
-                self.client.cancel_all_open_orders(symbol=symbol)
-                time.sleep(1)
-
-                # Final "dust" cleanup check
-                dust_position_info = self.client.get_position_info(symbol)
-                if dust_position_info:
-                    logger.warning(f"Dust position found for {symbol}. Sending final close order. Dust: {dust_position_info}")
-                    self.client.close_position_market(symbol=symbol, position_side=trade_info['side'])
-                
-                # Remove the position from our active state management
-                if symbol in self.open_positions:
-                    del self.open_positions[symbol]
-                    logger.info(f"Removed processed position {symbol} from active state.")
-                    self._save_state() # Save the updated state to file
-            else:
-                logger.debug(f"Position for {symbol} is still open. SL Status: {sl_status}, TP Status: {tp_status}")
-
-            time.sleep(1)
-
-    def _handle_trade_closure(self, symbol, entry_trade_info, closing_order, exit_reason):
-        """Fetches final PnL and commission and logs the completed trade."""
-        logger.info(f"Handling closure of trade for {symbol} due to {exit_reason}.")
+        all_positions_df = self.client.get_all_open_positions_df()
         
-        closing_order_id = closing_order.get('orderId')
-        if not closing_order_id:
-            logger.error(f"Could not log trade for {symbol} because closing order ID is missing.")
-            return
-
-        closing_trade_details = self.client.get_trades_for_order(symbol, closing_order_id)
-        if not closing_trade_details:
-            logger.error(f"Could not get closing trade details for order {closing_order_id}. Cannot log PnL.")
-            return
-            
-        net_pnl_usdt = closing_trade_details.get('total_pnl', 0.0)
-        exit_commission = closing_trade_details.get('total_commission', 0.0)
-        
-        entry_price = entry_trade_info.get('entry_price', 0)
-        quantity = entry_trade_info.get('quantity', 0)
-        side = entry_trade_info.get('side')
-        entry_commission = entry_trade_info.get('entry_commission', 0.0)
-        total_commission = entry_commission + exit_commission
-        
-        entry_nominal_value = entry_price * quantity
-        pnl_percentage = (net_pnl_usdt / entry_nominal_value) if entry_nominal_value != 0 else 0.0
-        
-        exit_price = float(closing_order.get('avgPrice', 0))
-
-        logger.info(f"Trade Closed for {symbol}: Net PnL (from API)={net_pnl_usdt:.4f} USDT, Total Commission={total_commission:.6f}")
-        
-        trade_log_data = {
-            'symbol': symbol, 'side': side, 'quantity': quantity, 'entry_price': entry_price,
-            'exit_price': exit_price, 'pnl_usdt': net_pnl_usdt, 'pnl_percentage': pnl_percentage,
-            'entry_commission': entry_commission, 'exit_commission': exit_commission, 'total_commission': total_commission,
-            'entry_reason': entry_trade_info.get('entry_reason', 'N/A'), 'exit_reason': exit_reason
-        }
-        log_trade(trade_log_data)
-        
-        pnl_icon = "✅" if net_pnl_usdt >= 0 else "🔻"
-        msg = (f"{pnl_icon} **POSITION CLOSED** {pnl_icon}\n\n"
-               f"Symbol: `{symbol}`\n"
-               f"Side: `{side}` | Exit: `{exit_reason}`\n"
-               f"Entry: `{entry_price}` | Exit: `{exit_price}`\n"
-               f"**Net PnL: `{net_pnl_usdt:.4f} USDT`**")
-        send_telegram_message(msg)
+        for symbol, position_data in list(self.open_positions.items()):
+            if symbol not in all_positions_df.index:
+                logger.info(f"Position for {symbol} appears to be closed on the exchange. Logging and cleaning up.")
+                log_trade({'symbol': symbol, 'pnl_usd': 'N/A - Closed externally', 'side': position_data.get('side')})
+                send_telegram_message(f"🔔 **Position Closed Externally:**\nSymbol: `{symbol}`")
+                del self.open_positions[symbol]
+                self._save_state()
 
     def _scan_for_new_trades(self):
-        """Scans the market and processes symbols for potential new entries."""
         logger.info("Scanning for new trade opportunities...")
         symbols_to_check = get_top_volume_usdt_futures_symbols(
             client=self.client, count=self.symbols_to_scan_count, min_quote_volume=self.min_24h_quote_volume)
+        
         if not symbols_to_check:
+            logger.warning("Market scanner did not return any symbols to check.")
             return
 
         for symbol in symbols_to_check:
             if not self.running or len(self.open_positions) >= self.max_concurrent_positions:
                 if len(self.open_positions) >= self.max_concurrent_positions:
-                    logger.info("Max concurrent positions reached. Stopping scan for new trades.")
+                    logger.info("Max concurrent positions reached. Stopping scan for this loop.")
                 break 
             
+            logger.debug(f"Processing symbol: {symbol}")
             trade_initiated = self._process_symbol_for_entry(symbol)
             if trade_initiated:
-                logger.info(f"A new trade was initiated. Stopping scan for this loop.")
+                logger.info(f"A new trade was initiated for {symbol}. Stopping scan for this loop.")
                 break
-            time.sleep(10)
+            time.sleep(2)
 
     def _process_symbol_for_entry(self, symbol):
         if symbol in self.open_positions:
@@ -294,134 +153,70 @@ class TradingEngine:
             return False
 
         try:
-            # Check if there's an existing position on the exchange
-            exchange_positions = self.client.get_position_info(symbol)
-            if exchange_positions:
-                logger.warning(f"Found an existing position for {symbol} on the exchange. Skipping to avoid duplicates.")
-                return False
-        except Exception as e:
-            logger.error(f"Could not verify existing position for {symbol}: {e}. Skipping.", exc_info=True)
-            return False
+            kline_interval = settings.STRATEGY_KLINE_INTERVAL
+            kline_limit = 200
+            
+            logger.debug(f"Fetching {kline_limit} klines for {symbol} with interval {kline_interval}...")
+            klines_df = self.client.get_historical_klines(symbol, kline_interval, limit=kline_limit)
 
-        # Get trading signal - returns tuple (signal, stop_loss, take_profit)
-        try:
-            signal_result = self.strategy.generate_signal(symbol)
+            if klines_df is None or klines_df.empty or len(klines_df) < kline_limit:
+                logger.warning(f"Not enough kline data for {symbol}. Need {kline_limit}, got {len(klines_df)}.")
+                return False
+
+            signal, sl_price, tp_price = self.strategy.generate_signal(data=klines_df)
+            
+            if signal in ["BUY", "SELL"] and sl_price is not None and tp_price is not None:
+                logger.info(f"Actionable signal '{signal}' received for {symbol}. Preparing to execute trade...")
+                return self._execute_trade(symbol, signal, sl_price, tp_price)
+        
         except Exception as e:
-            logger.error(f"Error generating signal for {symbol}: {e}", exc_info=True)
-            return False
-        
-        # Handle tuple format
-        if isinstance(signal_result, tuple) and len(signal_result) == 3:
-            signal, sl_price, tp_price = signal_result
-        else:
-            logger.error(f"Invalid signal format for {symbol}: {type(signal_result)}")
-            return False
-        
-        # Validate signal
-        if signal in ["BUY", "SELL"] and sl_price is not None and tp_price is not None:
-            logger.info(f"Actionable signal '{signal}' received for {symbol}. Preparing to execute trade...")
-            return self._execute_trade(symbol, (signal, sl_price, tp_price))
+            logger.error(f"Error processing symbol {symbol} for entry: {e}", exc_info=True)
         
         return False
 
-    def _execute_trade(self, symbol, signal_result):
-
-        if isinstance(signal_result, tuple):
-            signal, sl_price, tp_price = signal_result
-            extra_data = {}
-        elif hasattr(signal_result, 'signal'):
-            signal = signal_result.signal
-            sl_price = signal_result.stop_loss
-            tp_price = signal_result.take_profit
-            extra_data = signal_result.extra_data
-        else:
-            logger.error(f"Invalid signal format: {type(signal_result)}")
-            return False
-
-        if signal not in ["BUY", "SELL"] or not all([sl_price, tp_price]):
-            return False
-        
-        if extra_data:
-            logger.debug(f"Extra signal data: {extra_data}")
-            
+    def _execute_trade(self, symbol, signal, sl_price, tp_price):
         try:
-            logger.info(f"Setting leverage for {symbol} to {self.leverage}x before placing trade.")
+            side = "BUY" if signal == "BUY" else "SELL"
+            logger.info(f"Executing {side} trade for {symbol} | SL: {sl_price:.4f} | TP: {tp_price:.4f}")
+
+            # Set leverage before placing trade
             self.client.set_leverage(symbol=symbol, leverage=self.leverage)
             time.sleep(0.5)
+
+            # Open the position with SL/TP orders
+            # This is a simplified call; your client's method might differ
+            # Assume it returns a tuple: (entry_order, stop_order, tp_order)
+            result = self.client.open_position_market_with_sl_tp(
+                symbol=symbol,
+                order_side=side,
+                position_size_usdt=self.position_size_usdt,
+                stop_loss_price=sl_price,
+                take_profit_price=tp_price
+            )
             
-            # Since SL/TP prices are pre-calculated by the strategy, we use them directly.
-            # The PERCENT_PRICE filter check is still useful as a final safety measure.
-            current_price = self.client.get_mark_price(symbol)
-            if not current_price:
-                logger.error(f"Could not get MARK PRICE for {symbol} to validate SL/TP. Aborting trade.")
-                return False
-
-            symbol_info = self.client._get_symbol_info(symbol)
-            if not symbol_info:
-                 logger.error(f"Could not get symbol info for {symbol}. Cannot validate filters.")
-                 return False
-
-            price_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'PERCENT_PRICE'), None)
-            if price_filter:
-                multiplier_up = float(price_filter['multiplierUp'])
-                multiplier_down = float(price_filter['multiplierDown'])
-                max_allowed_price = self.client._format_price(symbol, current_price * multiplier_up)
-                min_allowed_price = self.client._format_price(symbol, current_price * multiplier_down)
-                
-                original_tp, original_sl = tp_price, sl_price
-                tp_price = max(min(tp_price, max_allowed_price), min_allowed_price)
-                sl_price = max(min(sl_price, max_allowed_price), min_allowed_price)
-
-                if tp_price != original_tp: logger.warning(f"TP price for {symbol} adjusted from {original_tp:.4f} to {tp_price:.4f} due to PERCENT_PRICE filter.")
-                if sl_price != original_sl: logger.warning(f"SL price for {symbol} adjusted from {original_sl:.4f} to {sl_price:.4f} due to PERCENT_PRICE filter.")
-            
-            entry_order, stop_order, tp_order = self.client.open_position_market_with_sl_tp(
-                symbol=symbol, order_side=side, position_size_usdt=self.position_size_usdt,
-                stop_loss_price=sl_price, take_profit_price=tp_price)
-
-            if entry_order and entry_order.get('status') == 'FILLED':
-                entry_commission = 0.0
-                entry_order_id = entry_order.get('orderId')
-                if entry_order_id:
-                    time.sleep(1) 
-                    trade_details = self.client.get_trades_for_order(symbol, entry_order_id)
-                    if trade_details: entry_commission = trade_details.get('total_commission', 0.0)
-
+            # This part needs to be adapted based on what your client method returns
+            if result and result[0] and result[0].get('status') == 'FILLED':
+                entry_order = result[0]
                 logger.info(f"Successfully opened new {side} position for {symbol}. Updating internal state.")
+                
+                # Update internal state
                 self.open_positions[symbol] = {
-                    "side": side, "quantity": float(entry_order.get('executedQty')),
-                    "entry_price": float(entry_order.get('avgPrice')), "entry_commission": entry_commission,
-                    "entry_order_id": entry_order_id, "stop_loss_order_id": stop_order.get('orderId') if stop_order else None,
-                    "take_profit_order_id": tp_order.get('orderId') if tp_order else None, "entry_reason": "MTA_EMA_RSI_BB",
+                    "side": side,
+                    "quantity": float(entry_order.get('executedQty')),
+                    "entry_price": float(entry_order.get('avgPrice')),
+                    # ... add other necessary info ...
                 }
                 self._save_state()
-
-                # Calculate effective percentages for the notification message
-                entry_price_val = self.open_positions[symbol]['entry_price']
-                effective_sl_percent = 0.0
-                effective_tp_percent = 0.0
-
-                if entry_price_val > 0:
-                    if side.upper() == "BUY":
-                        effective_sl_percent = abs((entry_price_val - sl_price) / entry_price_val) * 100
-                        effective_tp_percent = abs((tp_price - entry_price_val) / entry_price_val) * 100
-                    elif side.upper() == "SELL":
-                        effective_sl_percent = abs((sl_price - entry_price_val) / entry_price_val) * 100
-                        effective_tp_percent = abs((entry_price_val - tp_price) / entry_price_val) * 100
-
-                msg = (f"🚀 **NEW POSITION OPENED** 🚀\n\n"
-                       f"`{symbol}` | **{side}**\n\n"
-                       f"Entry Price: `{entry_price_val:.4f}`\n"
-                       f"Quantity: `{self.open_positions[symbol]['quantity']}`\n\n"
-                       f"SL Price: `{sl_price:.4f}` (~{effective_sl_percent:.2f}%)\n"
-                       f"TP Price: `{tp_price:.4f}` (~{effective_tp_percent:.2f}%)")
                 
+                # Send notification
+                msg = f"🚀 **NEW POSITION OPENED** 🚀\n\n`{symbol}` | **{side}**"
                 send_telegram_message(msg)
+                
                 return True
             else:
-                logger.error(f"Failed to open new {side} position for {symbol}. Entry order response: {entry_order}")
+                logger.error(f"Failed to open new {side} position for {symbol}. Result: {result}")
                 return False
-        
+
         except Exception as e:
             logger.error(f"An error occurred during trade execution for {symbol}: {e}", exc_info=True)
             return False

@@ -1,4 +1,4 @@
-# main.py - Geliştirilmiş ve tüm stratejilerle uyumlu ana giriş noktası
+# main.py - The main entry point for the trading bot application.
 
 import logging
 import time
@@ -12,8 +12,8 @@ try:
     from trading_bot.core.trading_engine import TradingEngine
     from trading_bot.utils.notifier import send_telegram_message
     from trading_bot.core.strategy_factory import StrategyFactory
-except ImportError:
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+except ImportError as e:
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     from trading_bot.utils.logger_config import setup_logger
@@ -54,9 +54,7 @@ def main():
                 logger.error(f"Setting '{setting_name}' not found in settings.py!")
                 raise ValueError(f"Missing required setting in settings.py: {setting_name}")
         
-        # --- NEWLY ADDED SECTION: Log the loaded strategy parameters ---
         logger.info(f"Strategy Parameters Loaded: {strategy_params}")
-        # -----------------------------------------------------------
         
         # 4. Create the final strategy INSTANCE with the parameters
         strategy = strategy_class(strategy_params)
@@ -65,23 +63,32 @@ def main():
 
         # 5. Initialize and run the Trading Engine
         engine = TradingEngine(client=client, strategy=strategy)
-        logger.info("Trading Engine initialized successfully.")
+        # engine.run() is called from main script, not here anymore
         
-        engine.run()
-        
-        logger.info("Trading Engine has been stopped. Main application exiting.")
-
     except Exception as e:
         logger.critical(f"A critical error occurred during bot initialization: {e}", exc_info=True)
         logger.critical("Bot will exit.")
         send_telegram_message(f"❌ **CRITICAL ERROR** ❌\nBot failed to start!\n`{e}`")
         return
 
+    # This part should be outside the try block if engine.run() is the main loop
+    try:
+        if 'engine' in locals():
+            engine.run()
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received in main. Stopping engine.")
+        if 'engine' in locals():
+            engine.stop()
+    finally:
+        logger.info("Main function finished.")
+
+
 if __name__ == "__main__":
     try:
         main()
-    except KeyboardInterrupt:
-        print("\nINFO: KeyboardInterrupt received. Shutting down gracefully.")
+    except Exception as e:
+        # Final catch-all for any exceptions that might slip through
+        logging.getLogger("trading_bot").critical(f"Unhandled exception at the top level: {e}", exc_info=True)
     finally:
         shutdown_message = "🛑 **X_bot SHUTDOWN** 🛑"
         send_telegram_message(shutdown_message)
