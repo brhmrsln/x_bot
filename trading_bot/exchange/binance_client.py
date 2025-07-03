@@ -3,6 +3,7 @@ import logging
 from binance.um_futures import UMFutures  # For USDT-M Futures (USDⓈ-M Futures)
 import time # For sleep
 import pandas as pd
+from binance.error import ClientError, ServerError
 
 # Attempt to import settings and logger setup function from the project structure
 try:
@@ -573,22 +574,15 @@ class BinanceFuturesClient:
             logger.error(f"Error querying order for {symbol.upper()} (ID: {order_id or orig_client_order_id}): {e}", exc_info=True)
             return None
         
-    def get_historical_klines(self, symbol, interval, limit=500, start_time=None, end_time=None):
+    def get_historical_klines(self, symbol, interval, limit=500):
         """
         Fetches historical klines and returns them as a structured pandas DataFrame.
         """
         logger.debug(f"Fetching historical klines for {symbol} with interval {interval}, limit {limit}...")
         try:
             params = {'symbol': symbol.upper(), 'interval': interval, 'limit': limit}
-            if start_time:
-                params['startTime'] = start_time
-            if end_time:
-                params['endTime'] = end_time
-
             # Get raw kline data from the API (returns a list of lists)
             klines_data = self.client.klines(**params)
-            
-            logger.info(f"Successfully fetched {len(klines_data)} klines for {symbol} (interval: {interval}).")
             
             if not klines_data:
                 return pd.DataFrame() # Return an empty DataFrame if no data
@@ -601,13 +595,12 @@ class BinanceFuturesClient:
             ])
             
             # Convert key columns to numeric types for calculations
-            numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'quote_asset_volume', 'number_of_trades']
+            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
             for col in numeric_cols:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             
-            # Convert timestamps to datetime objects for easier use
+            # Add a readable datetime column for convenience
             df['open_time_dt'] = pd.to_datetime(df['open_time'], unit='ms')
-            df['close_time_dt'] = pd.to_datetime(df['close_time'], unit='ms')
             
             return df
 
@@ -783,6 +776,45 @@ class BinanceFuturesClient:
             logger.error(f"Failed to place closePosition MARKET order for {symbol}: {e}", exc_info=True)
             return None
         
+    def get_all_open_positions_df(self):
+        """
+        Fetches all account positions with a non-zero position amount using a single API call.
+        This version is robust against missing columns in the API response.
+        """
+        logger.debug("Fetching all open positions...")
+        try:
+            all_positions_risk = self.client.get_position_risk()
+            
+            if not all_positions_risk:
+                return pd.DataFrame()
+
+            open_positions = [p for p in all_positions_risk if float(p.get('positionAmt', 0)) != 0]
+
+            if not open_positions:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(open_positions)
+            
+            # --- DÜZELTME 2: Veri dönüştürmeyi daha güvenli hale getir ---
+            # Olası sayısal sütunları tanımla
+            possible_numeric_cols = ['positionAmt', 'entryPrice', 'markPrice', 'unRealizedProfit', 'liquidationPrice', 'leverage']
+            
+            # Sadece DataFrame'de mevcut olan sütunları dönüştür
+            for col in possible_numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            # -----------------------------------------------------------
+            
+            df.set_index('symbol', inplace=True)
+            return df
+            
+        except (ClientError, ServerError) as e: # Artık bu hata yakalama bloğu doğru çalışacak
+            logger.error(f"API Error fetching all position risk data: {e}")
+            return pd.DataFrame()
+        except Exception as e:
+             logger.error(f"A general error occurred in get_all_open_positions_df: {e}", exc_info=True)
+             return pd.DataFrame()
+    
 if __name__ == '__main__':
     standalone_logger = setup_logger(name="trading_bot") 
     standalone_logger.info("--- Testing BinanceFuturesClient Standalone with Order Placement (SL & TP) ---")
